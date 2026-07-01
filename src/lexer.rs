@@ -24,7 +24,7 @@ impl Span {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq,Copy)]
 pub enum TokenKind {
     Identifier,
     Number,       // 16#FF#, 3.14

@@ -54,7 +54,6 @@ impl<'a> Parser<'a> {
                     self.parse_lib();
                 }
                 TokenKind::Eof => break,
-
                 _ => {
                     todo!()
                 }
@@ -71,46 +70,36 @@ impl<'a> Parser<'a> {
 
         let start_port_id = self.arena.ports.len() as u32;
 
-        if let Some(tok) = self.lexer.peek() {
-            if tok.kind == TokenKind::KwPort {
-                self.advance();
-                self.expect(TokenKind::LParen);
+        if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::KwPort) {
+            self.advance();
+            self.expect(TokenKind::LParen);
 
-                loop {
-                    self.parse_port();
+            loop {
+                self.parse_port();
 
-                    let next = self.lexer.peek().unwrap();
-                    if next.kind == TokenKind::Semicolon {
-                        self.advance();
-                    } else if next.kind == TokenKind::RParen {
-                        break;
-                    } else {
-                        panic!("Syntax Error: Expected ';' or ')' after port declaration");
-                    }
+                let next_kind = self.lexer.peek().map(|t| t.kind);
+                if next_kind == Some(TokenKind::Semicolon) {
+                    self.advance();
+                } else if next_kind == Some(TokenKind::RParen) {
+                    break;
+                } else {
+                    panic!("Syntax Error: Expected ';' or ')' after port declaration");
                 }
-
-                self.expect(TokenKind::RParen);
-                self.expect(TokenKind::Semicolon);
             }
+
+            self.expect(TokenKind::RParen);
+            self.expect(TokenKind::Semicolon);
         }
 
         let end_port_id = self.arena.ports.len() as u32;
         self.expect(TokenKind::KwEnd);
 
-        // VHDL allows end [entity] [my_entity]
-        if let Some(t) = self.lexer.peek() {
-            if t.kind == TokenKind::KwEntity {
-                self.advance();
-            }
+        // VHDL allows end [entity] [my_entity];
+        if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::KwEntity) {
+            self.advance();
         }
 
-        let is_identifier = self
-            .lexer
-            .peek()
-            .map(|t| t.kind == TokenKind::Identifier)
-            .unwrap_or(false);
-
-        if is_identifier {
+        if self.next_is_ident() {
             let t = self.advance();
             if self.get_text(t.span) != entity_name {
                 panic!(
@@ -172,21 +161,13 @@ impl<'a> Parser<'a> {
 
         self.expect(TokenKind::KwEnd);
 
-        //same with entity, possible are "end [architecture] [my_architecture]"";
+        //same with entity, possible are "end [architecture] [my_architecture]";
 
-        if let Some(t) = self.lexer.peek() {
-            if t.kind == TokenKind::KwArchitecture {
-                self.advance();
-            }
+        if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::KwArchitecture) {
+            self.advance();
         }
 
-        let is_identifier = self
-            .lexer
-            .peek()
-            .map(|t| t.kind == TokenKind::Identifier)
-            .unwrap_or(false);
-
-        if is_identifier {
+        if self.next_is_ident() {
             let t = self.advance();
             let end_name = self.get_text(t.span);
 
@@ -197,7 +178,6 @@ impl<'a> Parser<'a> {
                 );
             }
         }
-        dbg!(is_identifier);
         self.expect(TokenKind::Semicolon);
 
         let arch = Architecture {
@@ -263,22 +243,8 @@ impl<'a> Parser<'a> {
             PortMode::In
         };
 
-        let mut paren_depth = 0;
-        let type_start = self.lexer.peek().map(|t| t.span.start).unwrap_or(0);
-        let mut type_end = type_start;
-
-        while let Some(tok) = self.lexer.peek() {
-            match tok.kind {
-                TokenKind::LParen => paren_depth += 1,
-                TokenKind::RParen if paren_depth > 0 => paren_depth -= 1,
-                TokenKind::RParen if paren_depth == 0 => break,
-                TokenKind::Semicolon if paren_depth == 0 => break,
-                _ => {}
-            }
-            type_end = self.advance().span.end;
-        }
-
-        let port_type = self.source[type_start..type_end].trim();
+        let type_span = self.slice_until_depth_zero(&[TokenKind::Semicolon, TokenKind::RParen]);
+        let port_type = self.get_text(type_span).trim();
 
         let port = Port {
             name,
@@ -287,6 +253,26 @@ impl<'a> Parser<'a> {
         };
 
         self.arena.alloc_port(port)
+    }
+    fn slice_until_depth_zero(&mut self, terminators: &[TokenKind]) -> Span {
+        let start = self.lexer.peek().map(|t| t.span.start).unwrap_or(0);
+        let mut end = start;
+        let mut paren_depth = 0;
+
+        while let Some(tok) = self.lexer.peek() {
+            if paren_depth == 0 && terminators.contains(&tok.kind) {
+                break;
+            }
+
+            // Track internal balancing
+            match tok.kind {
+                TokenKind::LParen => paren_depth += 1,
+                TokenKind::RParen if paren_depth > 0 => paren_depth -= 1,
+                _ => {}
+            }
+            end = self.advance().span.end;
+        }
+        Span { start, end }
     }
 
     fn parse_architecture_declaration(&mut self) -> DeclId {
@@ -307,22 +293,8 @@ impl<'a> Parser<'a> {
 
         self.expect(TokenKind::Colon);
 
-        let mut paren_depth = 0;
-        let type_start = self.lexer.peek().map(|t| t.span.start).unwrap_or(0);
-        let mut type_end = type_start;
-
-        while let Some(tok) = self.lexer.peek() {
-            match tok.kind {
-                TokenKind::LParen => paren_depth += 1,
-                TokenKind::RParen if paren_depth > 0 => paren_depth -= 1,
-                TokenKind::Semicolon if paren_depth == 0 => break,
-
-                _ => {}
-            }
-            type_end = self.advance().span.end;
-        }
-
-        let decl_type = self.source[type_start..type_end].trim();
+        let decl_span = self.slice_until_depth_zero(&[TokenKind::Semicolon]);
+        let decl_type = self.get_text(decl_span).trim();
 
         self.expect(TokenKind::Semicolon);
 
@@ -350,14 +322,8 @@ impl<'a> Parser<'a> {
         }
         let identifier_name = self.get_text(first_token.span);
 
-        let next_kind = self
-            .lexer
-            .peek()
-            .map(|f| f.kind.clone())
-            .unwrap_or(TokenKind::Eof);
-
-        match next_kind {
-            TokenKind::OpSignalAssignOrLEq => {
+        match self.lexer.peek().map(|f| f.kind) {
+            Some(TokenKind::OpSignalAssignOrLEq) => {
                 self.advance();
 
                 let expr_start = self.lexer.peek().map(|t| t.span.start).unwrap_or(0);
@@ -384,7 +350,7 @@ impl<'a> Parser<'a> {
             }
 
             // Either a label or a component instantiation
-            TokenKind::Colon => {
+            Some(TokenKind::Colon) => {
                 self.advance(); // Consume ':'
 
                 let after_colon = &self.lexer.peek().expect("Unexpected EOF after label").kind;
@@ -406,7 +372,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_process(&mut self, label: Option<&'a str>) -> StmtId {
-        if self.lexer.peek().map(|t| t.kind.clone()) == Some(TokenKind::LParen) {
+        if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::LParen) {
             self.advance();
             while let Some(tok) = self.lexer.peek() {
                 if tok.kind == TokenKind::RParen {
@@ -435,10 +401,8 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::KwEnd);
 
         // Handle optional "end process;" or "end process label;"
-        if let Some(x) = self.lexer.peek() {
-            if x.kind == TokenKind::KwProcess {
-                self.advance();
-            }
+        if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::KwProcess) {
+            self.advance();
         }
 
         if let Some(lbl) = label {
@@ -469,18 +433,9 @@ impl<'a> Parser<'a> {
     }
 
     fn fast_forward_to_semicolon(&mut self) -> Span {
-        let start = self.lexer.peek().map(|t| t.span.start).unwrap_or(0);
-        let mut end = start;
-
-        while let Some(tok) = self.lexer.peek() {
-            if tok.kind == TokenKind::Semicolon {
-                break;
-            }
-            end = self.advance().span.end;
-        }
-        self.expect(TokenKind::Semicolon); // Consume the ';'
-
-        Span { start, end }
+        let span = self.slice_until_depth_zero(&[TokenKind::Semicolon]);
+        self.expect(TokenKind::Semicolon); // Safely consume the semicolon
+        span
     }
 
     fn parse_component_instantiation(&self, identifier_name: &str) -> StmtId {
@@ -488,32 +443,20 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_sequential_statement(&mut self) -> StmtId {
-        let first_tok = self
-            .lexer
-            .peek()
-            .expect("Unexpected EOF in process body")
-            .clone();
-
-        match first_tok.kind {
-            TokenKind::KwIf => self.parse_if_statement(),
+        match self.lexer.peek().map(|t| t.kind) {
+            Some(TokenKind::KwIf) => self.parse_if_statement(),
 
             // TODO
             // TokenKind::KwCase => self.parse_case_statement(),
             // TokenKind::KwFor | TokenKind::KwWhile => self.parse_loop_statement(),
-            TokenKind::Identifier => {
+            Some(TokenKind::Identifier) => {
                 // It's an assignment (either signal <= or variable :=)
                 let name_tok = self.advance();
                 let target = self.get_text(name_tok.span);
 
-                let next_kind = if let Some(t) = self.lexer.peek() {
-                    &t.kind
-                } else {
-                    &TokenKind::Eof
-                };
-
-                match next_kind {
+                match self.lexer.peek().map(|t| t.kind) {
                     // Signal Assignment: target <= expr;
-                    TokenKind::OpSignalAssignOrLEq => {
+                    Some(TokenKind::OpSignalAssignOrLEq) => {
                         self.advance(); // Consume '<='
                         let expr_span = self.fast_forward_to_semicolon();
 
@@ -525,7 +468,7 @@ impl<'a> Parser<'a> {
                     }
 
                     // Variable Assignment: target := expr;
-                    TokenKind::OpAssign => {
+                    Some(TokenKind::OpAssign) => {
                         self.advance(); // Consume ':='
                         let expr_span = self.fast_forward_to_semicolon();
 
@@ -535,6 +478,7 @@ impl<'a> Parser<'a> {
                         };
                         self.arena.alloc_stmt(stmt)
                     }
+                    None => panic!("Unexpected EOF"),
 
                     _ => panic!(
                         "Syntax Error: Expected '<=' or ':=' after identifier '{}' in process",
@@ -542,10 +486,10 @@ impl<'a> Parser<'a> {
                     ),
                 }
             }
-
-            _ => panic!(
+            None => panic!("Unexpected EOF"),
+            Some(tk) => panic!(
                 "Syntax Error: Unexpected token {:?} in sequential statement",
-                first_tok.kind
+                tk
             ),
         }
     }
