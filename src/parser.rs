@@ -25,6 +25,7 @@ impl<'a> Parser<'a> {
             span: Span { start: 0, end: 0 },
         })
     }
+    
     fn expect(&mut self, expected: TokenKind) -> Token {
         let token = self.advance();
         if token.kind != expected {
@@ -36,9 +37,6 @@ impl<'a> Parser<'a> {
             );
         }
         token
-    }
-    fn get_text(&self, span: Span) -> &'a str {
-        &self.source[span.start..span.end]
     }
 
     pub(crate) fn parse(&mut self) {
@@ -254,26 +252,6 @@ impl<'a> Parser<'a> {
 
         self.arena.alloc_port(port)
     }
-    fn slice_until_depth_zero(&mut self, terminators: &[TokenKind]) -> Span {
-        let start = self.lexer.peek().map(|t| t.span.start).unwrap_or(0);
-        let mut end = start;
-        let mut paren_depth = 0;
-
-        while let Some(tok) = self.lexer.peek() {
-            if paren_depth == 0 && terminators.contains(&tok.kind) {
-                break;
-            }
-
-            // Track internal balancing
-            match tok.kind {
-                TokenKind::LParen => paren_depth += 1,
-                TokenKind::RParen if paren_depth > 0 => paren_depth -= 1,
-                _ => {}
-            }
-            end = self.advance().span.end;
-        }
-        Span { start, end }
-    }
 
     fn parse_architecture_declaration(&mut self) -> DeclId {
         let start_tok = self.advance();
@@ -281,7 +259,7 @@ impl<'a> Parser<'a> {
         let is_signal = match start_tok.kind {
             TokenKind::KwSignal => true,
             TokenKind::KwConstant => false,
-            // Let's start with this for now
+            // Let's start with this for now TODO
             _ => panic!(
                 "Syntax Error: Expected 'signal' or 'constant', found {:?} at byte {}",
                 start_tok.kind, start_tok.span.start
@@ -359,7 +337,7 @@ impl<'a> Parser<'a> {
                     self.advance(); // Consume 'process'
                     self.parse_process(Some(identifier_name))
                 } else {
-                    // For now, assume if it's a label but not a process, it's an instantiation
+                    // For now, assume if it's a label but not a process, it's an instantiation TODO
                     self.parse_component_instantiation(identifier_name)
                 }
             }
@@ -425,13 +403,7 @@ impl<'a> Parser<'a> {
         self.arena.alloc_stmt(process_stmt)
     }
 
-    fn next_is_ident(&mut self) -> bool {
-        self.lexer
-            .peek()
-            .map(|t| t.kind == TokenKind::Identifier)
-            .unwrap_or(false)
-    }
-
+    /// Fast forwards to ```;``` consuming it
     fn fast_forward_to_semicolon(&mut self) -> Span {
         let span = self.slice_until_depth_zero(&[TokenKind::Semicolon]);
         self.expect(TokenKind::Semicolon); // Safely consume the semicolon
@@ -560,5 +532,36 @@ impl<'a> Parser<'a> {
         };
 
         self.arena.alloc_stmt(if_stmt)
+    }
+
+    fn next_is_ident(&mut self) -> bool {
+        self.lexer
+            .peek()
+            .map(|t| t.kind == TokenKind::Identifier)
+            .unwrap_or(false)
+    }
+
+    fn slice_until_depth_zero(&mut self, terminators: &[TokenKind]) -> Span {
+        let start = self.lexer.peek().map(|t| t.span.start).unwrap_or(0);
+        let mut end = start;
+        let mut paren_depth = 0;
+
+        while let Some(tok) = self.lexer.peek() {
+            if paren_depth == 0 && terminators.contains(&tok.kind) {
+                break;
+            }
+
+            match tok.kind {
+                TokenKind::LParen => paren_depth += 1,
+                TokenKind::RParen if paren_depth > 0 => paren_depth -= 1,
+                _ => {}
+            }
+            end = self.advance().span.end;
+        }
+        Span { start, end }
+    }
+
+    fn get_text(&self, span: Span) -> &'a str {
+        &self.source[span.start..span.end]
     }
 }

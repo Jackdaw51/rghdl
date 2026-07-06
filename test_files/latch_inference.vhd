@@ -10,6 +10,7 @@ entity transparent_latch is
 end entity transparent_latch;
 
 architecture behavioral of transparent_latch is
+    signal some_signal: std_logic_vector(7 downto 0);
 begin
     process(enable, data_in)
     begin
@@ -18,7 +19,6 @@ begin
             -- "This is a string literal"
             -- x"FFFF"
             -- The absence of an 'else' clause forces latch inference.
-            -- Excellent validation check for your semantic analyzer.
         end if;
     end process;
 end architecture behavioral;

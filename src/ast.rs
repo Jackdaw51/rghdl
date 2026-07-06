@@ -188,7 +188,7 @@ impl<'a> std::fmt::Display for AstArena<'a> {
         write!(
             f,
             "{:?},\n{:?}\n{:?},\n{:?}\n{:?},\n{:?}\n",
-            self.contexts, self.ports, self.entities, self.architectures, self.decls, self.stmts
+            self.contexts, self.entities, self.ports, self.architectures, self.decls, self.stmts
         )
     }
 }
