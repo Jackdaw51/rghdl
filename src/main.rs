@@ -12,8 +12,9 @@ mod parser;
 fn main() {
     // let source_string = fs::read_to_string("test_files/and_gate.vhd").expect("Not found");
     // let source_string = fs::read_to_string("test_files/custom_types_pkg.vhd").expect("Not found");
-    let source_string = fs::read_to_string("test_files/latch_inference.vhd").expect("Not found");
+    // let source_string = fs::read_to_string("test_files/latch_inference.vhd").expect("Not found");
     // let source_string = fs::read_to_string("test_files/param_mux.vhd").expect("Not found");
+    let source_string = fs::read_to_string("test_files/audio_testbench.vhd").expect("Not found");
 
     // let mut lexer = Lexer::new(&source_string);
 
