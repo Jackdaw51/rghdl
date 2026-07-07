@@ -10,6 +10,22 @@ pub struct Parser<'a> {
     pub arena: AstArena<'a>,
     source: &'a str,
 }
+#[derive(Debug, Clone)]
+pub enum ParseErrorKind {
+    ExpectedToken {
+        expected: TokenKind,
+        found: TokenKind,
+    },
+    UnexpectedEof,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParseError {
+    pub kind: ParseErrorKind,
+    pub span: Span,
+}
+
+pub type ParseResult<T> = Result<T, ParseError>;
 
 impl<'a> Parser<'a> {
     pub(crate) fn new(source: &'a str) -> Self {
@@ -25,7 +41,7 @@ impl<'a> Parser<'a> {
             span: Span { start: 0, end: 0 },
         })
     }
-    
+
     fn expect(&mut self, expected: TokenKind) -> Token {
         let token = self.advance();
         if token.kind != expected {
@@ -66,30 +82,8 @@ impl<'a> Parser<'a> {
 
         self.expect(TokenKind::KwIs);
 
-        let start_port_id = self.arena.ports.len() as u32;
+        let (ports_start, ports_end) = self.parse_port_clause();
 
-        if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::KwPort) {
-            self.advance();
-            self.expect(TokenKind::LParen);
-
-            loop {
-                self.parse_port();
-
-                let next_kind = self.lexer.peek().map(|t| t.kind);
-                if next_kind == Some(TokenKind::Semicolon) {
-                    self.advance();
-                } else if next_kind == Some(TokenKind::RParen) {
-                    break;
-                } else {
-                    panic!("Syntax Error: Expected ';' or ')' after port declaration");
-                }
-            }
-
-            self.expect(TokenKind::RParen);
-            self.expect(TokenKind::Semicolon);
-        }
-
-        let end_port_id = self.arena.ports.len() as u32;
         self.expect(TokenKind::KwEnd);
 
         // VHDL allows end [entity] [my_entity];
@@ -112,11 +106,42 @@ impl<'a> Parser<'a> {
 
         let entity = Entity {
             name: entity_name,
-            ports_start: PortId(start_port_id),
-            ports_end: PortId(end_port_id),
+            ports_start,
+            ports_end,
         };
 
         self.arena.alloc_entity(entity)
+    }
+
+    /// Parses `port ( ... );` and returns the slice of IDs allocated in the arena.
+    ///
+    /// If none is present it ```PortId == PortId```
+    fn parse_port_clause(&mut self) -> (PortId, PortId) {
+        let ports_start = self.arena.ports.len() as u32;
+
+        if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::KwPort) {
+            self.advance();
+            self.expect(TokenKind::LParen);
+
+            loop {
+                self.parse_port();
+
+                let next_kind = self.lexer.peek().map(|t| t.kind);
+                if next_kind == Some(TokenKind::Semicolon) {
+                    self.advance();
+                } else if next_kind == Some(TokenKind::RParen) {
+                    break;
+                } else {
+                    panic!("Syntax Error: Expected ';' or ')' after port declaration");
+                }
+            }
+            self.expect(TokenKind::RParen);
+            self.expect(TokenKind::Semicolon);
+        }
+
+        let ports_end = self.arena.ports.len() as u32;
+
+        (PortId(ports_start), PortId(ports_end))
     }
 
     fn parse_architecture(&mut self) -> ArchitectureId {
@@ -253,36 +278,25 @@ impl<'a> Parser<'a> {
         self.arena.alloc_port(port)
     }
 
-    fn parse_architecture_declaration(&mut self) -> DeclId {
+    fn parse_architecture_declaration(&mut self) -> ParseResult<()> {
         let start_tok = self.advance();
 
-        let is_signal = match start_tok.kind {
-            TokenKind::KwSignal => true,
-            TokenKind::KwConstant => false,
-            // Let's start with this for now TODO
-            _ => panic!(
-                "Syntax Error: Expected 'signal' or 'constant', found {:?} at byte {}",
-                start_tok.kind, start_tok.span.start
-            ),
-        };
-
-        let name_tok = self.expect(TokenKind::Identifier);
-        let name = self.get_text(name_tok.span);
-
-        self.expect(TokenKind::Colon);
-
-        let decl_span = self.slice_until_depth_zero(&[TokenKind::Semicolon]);
-        let decl_type = self.get_text(decl_span).trim();
-
-        self.expect(TokenKind::Semicolon);
-
-        let decl = if is_signal {
-            Decl::Signal { name, decl_type }
-        } else {
-            Decl::Constant { name, decl_type }
-        };
-
-        self.arena.alloc_decl(decl)
+        dbg!(self.get_text(start_tok.span));
+        match start_tok.kind {
+            TokenKind::KwComponent => self.parse_component_declaration(),
+            TokenKind::KwSignal => self.parse_SCV_declaration(TokenKind::KwSignal),
+            TokenKind::KwConstant => self.parse_SCV_declaration(TokenKind::KwConstant),
+            TokenKind::KwVariable => self.parse_SCV_declaration(TokenKind::KwVariable),
+            _ => {
+                panic!(
+                    "Syntax Error: Expected something TODO, found {:?} around {}",
+                    start_tok.kind,
+                    self.get_text(start_tok.span)
+                )
+            }
+        }?;
+        let decl_ends = self.arena.decls.len() as u32;
+        Ok(())
     }
 
     fn parse_concurrent_statement(&mut self) -> StmtId {
@@ -563,5 +577,70 @@ impl<'a> Parser<'a> {
 
     fn get_text(&self, span: Span) -> &'a str {
         &self.source[span.start..span.end]
+    }
+
+    fn parse_component_declaration(&mut self) -> ParseResult<()> {
+        let name_tok = self.expect(TokenKind::Identifier);
+        let name = self.get_text(name_tok.span);
+        let (ports_start, ports_end) = self.parse_port_clause();
+
+        let decl = Decl::Component {
+            name,
+            ports_start,
+            ports_end,
+        };
+        self.expect(TokenKind::KwEnd);
+
+        //TODO only handles end component; for now
+
+        self.expect(TokenKind::KwComponent);
+        self.expect(TokenKind::Semicolon);
+
+        self.arena.alloc_decl(decl);
+        Ok(())
+    }
+
+    /// Only handles `signal identifier_1,identifier_n : subtype;`
+    fn parse_SCV_declaration(&mut self, t: TokenKind) -> ParseResult<()> {
+        let mut names = vec![];
+        let name_tok = self.expect(TokenKind::Identifier);
+        names.push(self.get_text(name_tok.span));
+        // handle comma-separated signals
+        while self.next_is(TokenKind::Comma) {
+            self.advance();
+            let name_tok = self.expect(TokenKind::Identifier);
+            names.push(self.get_text(name_tok.span));
+        }
+        self.expect(TokenKind::Colon);
+
+        let type_span = self.slice_until_depth_zero(&[TokenKind::Semicolon, TokenKind::OpAssign]);
+        let decl_type = self.get_text(type_span).trim();
+
+        let mut default_val = None;
+        if self.next_is(TokenKind::OpAssign) {
+            self.advance();
+
+            let expr_span = self.slice_until_depth_zero(&[TokenKind::Semicolon]);
+            default_val = Some(self.get_text(expr_span).trim());
+        }
+
+        self.expect(TokenKind::Semicolon);
+
+
+        for name in names {
+            let decl = match t {
+                TokenKind::KwSignal => Decl::Signal { name, decl_type, default_val },
+                TokenKind::KwVariable => Decl::Variable { name, decl_type, default_val },
+                TokenKind::KwConstant => Decl::Constant { name, decl_type, default_val },
+                _ => unreachable!("Token was already validated"), 
+            };
+            self.arena.alloc_decl(decl);
+    }
+    
+        Ok(())
+    }
+
+    fn next_is(&mut self, next_kind: TokenKind) -> bool {
+        self.lexer.peek().map(|f| f.kind) == Some(next_kind)
     }
 }

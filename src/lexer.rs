@@ -24,7 +24,7 @@ impl Span {
     }
 }
 
-#[derive(Clone, Debug, PartialEq,Copy)]
+#[derive(Clone, Debug, PartialEq, Copy)]
 pub enum TokenKind {
     Identifier,
     Number,       // 16#FF#, 3.14
@@ -54,6 +54,8 @@ pub enum TokenKind {
     KwOf,
     KwSignal,
     KwConstant,
+    KwComponent,
+    KwVariable,
 
     OpAssign,            // :=
     OpArrow,             // => (Port mapping)
@@ -101,12 +103,15 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("of", TokenKind::KwOf),
     ("signal", TokenKind::KwSignal),
     ("constant", TokenKind::KwConstant),
+    ("component", TokenKind::KwComponent),
+    ("variable", TokenKind::KwVariable),
 ];
 
 pub struct Lexer<'a> {
     source: &'a str,
     chars: Peekable<Chars<'a>>,
     current_pos: usize,
+    current_line: usize,
 }
 
 impl<'a> Lexer<'a> {
@@ -115,6 +120,7 @@ impl<'a> Lexer<'a> {
             source,
             chars: source.chars().peekable(),
             current_pos: 0,
+            current_line: 0,
         }
     }
 
@@ -128,11 +134,11 @@ impl<'a> Lexer<'a> {
             match ch {
                 'a'..='z' | 'A'..='Z' => self.identifier_or_keyword(start_pos),
                 '0'..='9' => self.number(start_pos),
-                ':' | '<' => self.two_char(start_pos),
-                ';' | '.' | '(' | ')' | ',' | '=' | '+' | '-' => self.single_digit(start_pos),
+                ':' | '<' | '=' => self.two_char(start_pos),
+                ';' | '.' | '(' | ')' | ',' | '+' | '-' => self.single_digit(start_pos),
                 '"' => self.string_lit(start_pos),
                 '\'' => self.tick_or_char_lit(start_pos),
-                _ => self.unknown(start_pos),
+                x => self.unknown(x),
             }
         } else {
             Token {
@@ -149,6 +155,9 @@ impl<'a> Lexer<'a> {
         if let Some(ch) = self.chars.next() {
             // ch.len_utf8() ensures we don't panic on multibyte characters
             self.current_pos += ch.len_utf8();
+            if ch == '\n' {
+                self.current_line += 1;
+            }
             Some(ch)
         } else {
             None
@@ -246,7 +255,7 @@ impl<'a> Lexer<'a> {
     fn two_char(&mut self, start_pos: usize) -> Token {
         let t;
         let iter_clone = self.chars.clone().skip(1).next();
-
+        
         let Some(first_c) = self.chars.peek() else {
             return self.error(start_pos);
         };
@@ -254,7 +263,8 @@ impl<'a> Lexer<'a> {
         let Some(second_c) = iter_clone else {
             return self.error(start_pos);
         };
-
+        // dbg!(first_c,second_c);
+        
         t = match second_c {
             '=' => match first_c {
                 '<' => TokenKind::OpSignalAssignOrLEq,
@@ -279,8 +289,8 @@ impl<'a> Lexer<'a> {
         Token::new(TokenKind::Error, Span::new(start_pos, self.current_pos))
     }
 
-    fn unknown(&self, start_pos: usize) -> Token {
-        panic!("At {}", start_pos);
+    fn unknown(&self, c: char) -> Token {
+        panic!("unknown character '{}' at line {}", c, self.current_line);
     }
 
     fn single_digit(&mut self, start_pos: usize) -> Token {

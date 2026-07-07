@@ -46,14 +46,17 @@ pub enum Decl<'a> {
     Signal {
         name: &'a str,
         decl_type: &'a str,
+        default_val: Option<&'a str>
     },
     Constant {
         name: &'a str,
         decl_type: &'a str,
+        default_val: Option<&'a str>
     },
     Variable {
         name: &'a str,
         decl_type: &'a str,
+        default_val: Option<&'a str>
     },
     Component {
         name: &'a str,
@@ -187,8 +190,8 @@ impl<'a> std::fmt::Display for AstArena<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{:?},\n{:?}\n{:?},\n{:?}\n{:?},\n{:?}\n",
-            self.contexts, self.entities, self.ports, self.architectures, self.decls, self.stmts
+            "{:?},\n\n{:?},\n\n{:?},\n\n{:?},\n\n{:?},\n\n{:?}",
+            self.contexts, self.entities, self.ports, self.architectures, self.decls, self.stmts,
         )
     }
 }

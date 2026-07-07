@@ -21,24 +21,24 @@ architecture Behavioral of sine_wave_440hz is
     constant PHASE_STEP : unsigned(15 downto 0) := to_unsigned(601, 16);
 
     -- Define the Wheel (ROM type: 256 entries of 24-bit audio)
-    type rom_type is array (0 to 255) of signed(23 downto 0);
+    -- type rom_type is array (0 to 255) of signed(23 downto 0);
 
     -- Calculates sine values during compilation
-    impure function init_sine_rom return rom_type is
-        variable temp_rom : rom_type;
-        variable x : real;
-        variable sin_val : real;
-    begin
-        for i in 0 to 255 loop
-            -- Convert the 0-255 loop index into 0 to 2*Pi radians
-            x := real(i) * 2.0 * MATH_PI / 256.0;
-            sin_val := sin(x);
-            -- Scale the decimal sine value (-1.0 to 1.0) into 24-bit integers.
-            -- Max 24-bit signed value is roughly +/- 8,388,607
-            temp_rom(i) := to_signed(integer(sin_val * 8388607.0), 24);
-        end loop;
-        return temp_rom;
-    end function;
+    -- impure function init_sine_rom return rom_type is
+    --     variable temp_rom : rom_type;
+    --     variable x : real;
+    --     variable sin_val : real;
+    -- begin
+    --     for i in 0 to 255 loop
+    --         -- Convert the 0-255 loop index into 0 to 2*Pi radians
+    --         x := real(i) * 2.0 * MATH_PI / 256.0;
+    --         sin_val := sin(x);
+    --         -- Scale the decimal sine value (-1.0 to 1.0) into 24-bit integers.
+    --         -- Max 24-bit signed value is roughly +/- 8,388,607
+    --         temp_rom(i) := to_signed(integer(sin_val * 8388607.0), 24);
+    --     end loop;
+    --     return temp_rom;
+    -- end function;
 
     -- Create the actual physical ROM memory and fill it using the function
     constant SINE_ROM : rom_type := init_sine_rom;
@@ -60,7 +60,7 @@ begin
         if rising_edge(clk) then
             if reset = '1' then
                 phase_acc <= (others => '0');
-            elsif ce_48k = '1' then
+            -- elsif ce_48k = '1' then
                 -- Move the pointer forward by the step size every audio sample
                 phase_acc <= phase_acc + PHASE_STEP;
             end if;
