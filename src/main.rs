@@ -1,13 +1,13 @@
 use std::fs;
 
 use crate::{
-    lexer::{Lexer, TokenKind},
-    parser::Parser,
+    lexer::{Lexer, TokenKind}, parser::Parser, printer::FormatCtx,
 };
 
 pub(crate) mod ast;
 pub(crate) mod lexer;
 mod parser;
+mod printer;
 
 fn main() {
     // let source_string = fs::read_to_string("test_files/and_gate.vhd").expect("Not found");
@@ -21,7 +21,7 @@ fn main() {
 
     let mut parser = Parser::new(&source_string);
     parser.parse();
-    println!("{}", parser.arena);
+    println!("{}", FormatCtx{ item: &parser.arena, source: &source_string, arena: &parser.arena });
 
     // loop {
     // let token = lexer.next_token();
