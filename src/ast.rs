@@ -1,4 +1,6 @@
-use crate::lexer::Span;
+use std::{fmt::Display, ops::Index};
+
+use crate::{lexer::Span, parser};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContextId(pub u32);
@@ -46,17 +48,17 @@ pub enum Decl<'a> {
     Signal {
         name: &'a str,
         decl_type: &'a str,
-        default_val: Option<&'a str>
+        default_val: Option<&'a str>,
     },
     Constant {
         name: &'a str,
         decl_type: &'a str,
-        default_val: Option<&'a str>
+        default_val: Option<&'a str>,
     },
     Variable {
         name: &'a str,
         decl_type: &'a str,
-        default_val: Option<&'a str>
+        default_val: Option<&'a str>,
     },
     Component {
         name: &'a str,
@@ -146,6 +148,7 @@ pub struct AstArena<'a> {
     pub decls: Vec<Decl<'a>>,
     pub stmts: Vec<Stmt<'a>>,
     pub architectures: Vec<Architecture<'a>>,
+    ref_to_text: &'a str,
 }
 impl<'a> AstArena<'a> {
     pub fn new() -> Self {
@@ -184,14 +187,164 @@ impl<'a> AstArena<'a> {
         self.architectures.push(arch);
         ArchitectureId(id)
     }
+    fn get_text(&self, span: Span) -> &'a str {
+        &self.ref_to_text[span.start..span.end]
+    }
 }
 
 impl<'a> std::fmt::Display for AstArena<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // write!(
+        //     f,
+        //     "{:?},\n\n{:?},\n\n{:?},\n\n{:?},\n\n{:?},\n\n{:?}",
+        //     self.contexts, self.entities, self.ports, self.architectures, self.decls, self.stmts,
+        // )
+        for c in &self.contexts {
+            writeln!(f, "\n{}", c)?;
+        }
+
+        for e in &self.entities {
+            writeln!(f, "\n{}", e)?;
+            for ports in &self.ports[e.ports_start.0 as usize..e.ports_end.0 as usize] {
+                write!(f, "\t{}", ports)?;
+            }
+        }
+        for a in &self.architectures {
+            writeln!(f, "\n{}", a)?;
+            writeln!(f, "Declarations:")?;
+            for decls in &self.decls[a.decls_start.0 as usize..a.decls_end.0 as usize] {
+                match decls {
+                    Decl::Component {
+                        name,
+                        ports_start,
+                        ports_end,
+                    } => {
+                        write!(f, "Component: {}", name)?;
+                        for ports in &self.ports[ports_start.0 as usize..ports_end.0 as usize] {
+                            write!(f, "{}", ports)?;
+                        }
+                    }
+                    _ => (),
+                }
+                write!(f, "\t{}", decls)?;
+            }
+            writeln!(f, "Statements:")?;
+            for stmts in &self.stmts {
+                writeln!(f, "\t{}", stmts)?;
+            }
+        }
+        Ok(())
+    }
+}
+impl<'a> std::fmt::Display for Entity<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Entity: {}", self.name)
+    }
+}
+
+impl<'a> std::fmt::Display for Port<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{}: {:?} {}", self.name, self.mode, self.port_type)
+    }
+}
+impl<'a> std::fmt::Display for ContextItem<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ContextItem::Library { name } => write!(f, "Library: {}", name),
+            ContextItem::Use { path } => write!(f, "Path: {}", path),
+        }
+    }
+}
+impl<'a> Display for Architecture<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{:?},\n\n{:?},\n\n{:?},\n\n{:?},\n\n{:?},\n\n{:?}",
-            self.contexts, self.entities, self.ports, self.architectures, self.decls, self.stmts,
+            "Architecture: {}, referencing {}",
+            self.name, self.entity_name
         )
+    }
+}
+impl<'a> Display for Decl<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Decl::Signal {
+                name,
+                decl_type,
+                default_val,
+            } => writeln!(
+                f,
+                "Signal: {}: {}, default: {:?}",
+                name, decl_type, default_val
+            ),
+            Decl::Constant {
+                name,
+                decl_type,
+                default_val,
+            } => writeln!(
+                f,
+                "Constant: {}: {}, default: {:?}",
+                name, decl_type, default_val
+            ),
+            Decl::Variable {
+                name,
+                decl_type,
+                default_val,
+            } => writeln!(
+                f,
+                "Variable: {}: {}, default: {:?}",
+                name, decl_type, default_val
+            ),
+            Decl::Component {
+                name: _,
+                ports_start: _,
+                ports_end: _,
+            } => Err(std::fmt::Error),
+        }
+    }
+}
+impl<'a> Display for Stmt<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Stmt::ConcurrentAssignment {
+                target,
+                expression_span: _,
+            } => write!(f, "Concurrent assignment: {}", target),
+            Stmt::ConditionalAssignment { target } => todo!(),
+            Stmt::ComponentInstantiation {
+                label,
+                component_name,
+                port_map_span,
+            } => todo!(),
+            Stmt::Process {
+                label,
+                stmts_start,
+                stmts_end,
+            } => write!(f, "Process -> label: {:?}", label),
+            Stmt::SequentialAssignment {
+                target,
+                expression_span,
+            } => write!(f, "Sequential assignment: {}", target),
+            Stmt::VariableAssignment {
+                target,
+                expression_span,
+            } => todo!(),
+            Stmt::If {
+                condition_span,
+                then_start,
+                then_end,
+                else_start,
+                else_end,
+            } => write!(f, "If statement: {:?}", condition_span),
+            Stmt::Case {
+                expression_span,
+                cases_span,
+            } => todo!(),
+            Stmt::Loop {
+                label,
+                loop_scheme_span,
+                stmts_start,
+                stmts_end,
+            } => todo!(),
+        }
     }
 }
