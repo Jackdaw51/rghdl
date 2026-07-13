@@ -100,6 +100,8 @@ impl<'a> Display for FormatCtx<'a, Stmt<'a>> {
                 then_end,
                 else_start,
                 else_end,
+                elsifs_start,
+                elsifs_end,
             } => write!(f, "If statement: {:?}", self.get_text(condition_span)),
             Stmt::Case {
                 expression_span,

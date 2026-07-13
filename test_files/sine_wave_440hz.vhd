@@ -60,7 +60,7 @@ begin
         if rising_edge(clk) then
             if reset = '1' then
                 phase_acc <= (others => '0');
-            -- elsif ce_48k = '1' then
+            elsif ce_48k = '1' then
                 -- Move the pointer forward by the step size every audio sample
                 phase_acc <= phase_acc + PHASE_STEP;
             end if;

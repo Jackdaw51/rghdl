@@ -13,6 +13,9 @@ pub struct StmtId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArchitectureId(pub u32);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ElsifId(pub u32);
+
 #[derive(Debug, Clone)]
 pub enum ContextItem<'a> {
     Library { name: &'a str },
@@ -109,6 +112,8 @@ pub enum Stmt<'a> {
         condition_span: Span,
         then_start: StmtId,
         then_end: StmtId,
+        elsifs_start: ElsifId,
+        elsifs_end: ElsifId,
         else_start: Option<StmtId>,
         else_end: Option<StmtId>,
     },
@@ -138,6 +143,13 @@ pub struct Architecture<'a> {
     pub stmts_end: StmtId,
 }
 
+#[derive(Debug, Clone)]
+pub struct ElsifBranch {
+    pub condition_span: Span,
+    pub stmts_start: StmtId,
+    pub stmts_end: StmtId,
+}
+
 #[derive(Default, Debug)]
 pub struct AstArena<'a> {
     pub contexts: Vec<ContextItem<'a>>,
@@ -146,7 +158,7 @@ pub struct AstArena<'a> {
     pub decls: Vec<Decl<'a>>,
     pub stmts: Vec<Stmt<'a>>,
     pub architectures: Vec<Architecture<'a>>,
-    ref_to_text: &'a str,
+    pub elsifs: Vec<ElsifBranch>, // can't be a simple statement otherwise you lose the slice trick
 }
 impl<'a> AstArena<'a> {
     pub fn new() -> Self {
@@ -157,6 +169,11 @@ impl<'a> AstArena<'a> {
         let id = self.ports.len() as u32;
         self.ports.push(port);
         PortId(id)
+    }
+    pub fn alloc_elsif(&mut self, elsifs: ElsifBranch) -> ElsifId{
+        let id = self.elsifs.len() as u32;
+        self.elsifs.push(elsifs);
+        ElsifId(id)
     }
 
     pub fn alloc_entity(&mut self, entity: Entity<'a>) -> EntityId {
