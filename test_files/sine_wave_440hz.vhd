@@ -52,7 +52,7 @@ begin
     rom_addr <= to_integer(phase_acc(15 downto 8));
 
     -- Output the audio sample from the ROM continuously
-    audio_out <= std_logic_vector(SINE_ROM(rom_addr));
+    audio_out std_logic_vector(SINE_ROM(rom_addr));
 
     -- Process to spin the pointer
     process (clk)
@@ -60,7 +60,7 @@ begin
         if rising_edge(clk) then
             if reset = '1' then
                 phase_acc <= (others => '0');
-            elsif ce_48k = '1' then
+            -- elsif ce_48k = '1' then
                 -- Move the pointer forward by the step size every audio sample
                 phase_acc <= phase_acc + PHASE_STEP;
             end if;

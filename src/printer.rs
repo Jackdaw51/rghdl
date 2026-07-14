@@ -89,7 +89,7 @@ impl<'a> Display for FormatCtx<'a, Stmt<'a>> {
             Stmt::SequentialAssignment {
                 target,
                 expression_span,
-            } => write!(f, "Sequential assignment: {}", target),
+            } => write!(f, "Sequential assignment: {} <- {}", target,self.get_text(expression_span)),
             Stmt::VariableAssignment {
                 target,
                 expression_span,

@@ -1,4 +1,4 @@
-use crate::{lexer::Span, parser};
+use crate::lexer::Span;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContextId(pub u32);

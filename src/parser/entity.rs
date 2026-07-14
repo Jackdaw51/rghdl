@@ -1,16 +1,16 @@
-use crate::{ast::{Entity, EntityId}, lexer::TokenKind, parser::Parser};
+use crate::{ast::{Entity, EntityId}, lexer::TokenKind, parser::{ParseResult, Parser}};
 
 impl<'a> Parser<'a> {
-    pub(super) fn parse_entity(&mut self) -> EntityId {
+    pub(super) fn parse_entity(&mut self) -> ParseResult<EntityId> {
         self.advance();
-        let name_token = self.expect(TokenKind::Identifier);
+        let name_token = self.expect(TokenKind::Identifier)?;
         let entity_name = self.get_text(name_token.span);
 
-        self.expect(TokenKind::KwIs);
+        self.expect(TokenKind::KwIs)?;
 
-        let (ports_start, ports_end) = self.parse_port_clause();
+        let (ports_start, ports_end) = self.parse_port_clause()?;
 
-        self.expect(TokenKind::KwEnd);
+        self.expect(TokenKind::KwEnd)?;
 
         // VHDL allows end [entity] [my_entity];
         if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::KwEntity) {
@@ -28,7 +28,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        self.expect(TokenKind::Semicolon);
+        self.expect(TokenKind::Semicolon)?;
 
         let entity = Entity {
             name: entity_name,
@@ -36,7 +36,7 @@ impl<'a> Parser<'a> {
             ports_end,
         };
 
-        self.arena.alloc_entity(entity)
+        Ok(self.arena.alloc_entity(entity))
     }
     
 }

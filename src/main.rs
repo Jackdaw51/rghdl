@@ -1,7 +1,7 @@
 use std::fs;
 
 use crate::{
-    lexer::{Lexer, TokenKind}, parser::Parser, printer::FormatCtx,
+    parser::Parser, printer::FormatCtx,
 };
 
 pub(crate) mod ast;
