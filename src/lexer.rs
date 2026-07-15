@@ -2,7 +2,7 @@
 
 use std::{iter::Peekable, str::Chars};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Copy)]
 pub struct Token {
     pub kind: TokenKind,
     pub span: Span,
@@ -114,6 +114,7 @@ pub struct Lexer<'a> {
     chars: Peekable<Chars<'a>>,
     current_pos: usize,
     current_line: usize,
+    cached: Option<Token>,
 }
 
 impl<'a> Lexer<'a> {
@@ -123,10 +124,11 @@ impl<'a> Lexer<'a> {
             chars: source.chars().peekable(),
             current_pos: 0,
             current_line: 0,
+            cached: None,
         }
     }
 
-    pub fn next_token(&mut self) -> Token {
+    fn next_token(&mut self) -> Token {
         self.skip_whitespace_and_comments();
 
         let start_pos = self.current_pos;
@@ -257,7 +259,7 @@ impl<'a> Lexer<'a> {
     fn two_char(&mut self, start_pos: usize) -> Token {
         let t;
         let iter_clone = self.chars.clone().skip(1).next();
-        
+
         let Some(first_c) = self.chars.peek() else {
             return self.error(start_pos);
         };
@@ -266,7 +268,7 @@ impl<'a> Lexer<'a> {
             return self.error(start_pos);
         };
         // dbg!(first_c,second_c);
-        
+
         t = match second_c {
             '=' => match first_c {
                 '<' => TokenKind::OpSignalAssignOrLEq,
@@ -445,16 +447,20 @@ impl<'a> Lexer<'a> {
 
         Token::new(t, Span::new(start_pos, self.current_pos))
     }
-}
-impl<'a> Iterator for Lexer<'a> {
-    type Item = Token;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let token = self.next_token();
-        if token.kind == TokenKind::Eof {
-            None
-        } else {
-            Some(token)
+    pub fn peek(&mut self) -> Token {
+        if let Some(token) = self.cached {
+            return token;
         }
+
+        let token = self.next_token();
+        self.cached = Some(token);
+        token
+    }
+    pub fn next(&mut self) -> Token{
+        if let Some(token) = self.cached.take(){
+            return token;
+        }
+        self.next_token()
     }
 }

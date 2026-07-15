@@ -46,13 +46,22 @@ architecture Behavioral of sine_wave_440hz is
     -- Signal to hold the top 8 bits of the accumulator (our ROM address)
     signal rom_addr : integer range 0 to 255;
 
+    -- component square_wave_440hz
+    --     port (
+    --         clk : in std_logic;
+    --         ce_48k : in std_logic;
+    --         reset : in std_logic;
+    --         audio_out : out std_logic_vector (23 downto 0)
+    --     );
+    -- end component;
+
 begin
 
     -- Grab the top 8 bits of the 16-bit pointer to use as the 256-entry ROM address
     rom_addr <= to_integer(phase_acc(15 downto 8));
 
     -- Output the audio sample from the ROM continuously
-    audio_out std_logic_vector(SINE_ROM(rom_addr));
+    audio_out <= std_logic_vector(SINE_ROM(rom_addr));
 
     -- Process to spin the pointer
     process (clk)

@@ -21,7 +21,7 @@ fn main() {
 
     let mut parser = Parser::new(&source_string);
     parser.parse();
-    println!("{}", FormatCtx{ item: &parser.arena, source: &source_string, arena: &parser.arena });
+    // println!("{}", FormatCtx{ item: &parser.arena, source: &source_string, arena: &parser.arena });
 
     // loop {
     // let token = lexer.next_token();

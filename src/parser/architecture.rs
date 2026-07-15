@@ -2,7 +2,6 @@ use super::Parser;
 use crate::ast::ElsifId;
 use crate::exp_tks;
 
-use crate::parser::ParseErrorKind::UnexpectedEof;
 use crate::{
     ast::{Architecture, ArchitectureId, Decl, DeclId, Stmt, StmtId},
     lexer::{Span, TokenKind},
@@ -25,44 +24,38 @@ impl<'a> Parser<'a> {
 
         let decls_start = self.arena.decls.len() as u32;
 
-        while let Some(tok) = self.lexer.peek() {
-            if tok.kind == TokenKind::KwBegin {
-                break;
-            }
-            if let Err(x) = self.parse_architecture_declaration(){
+        while !self.next_is(TokenKind::KwBegin) {
+            if let Err(x) = self.parse_architecture_declaration() {
                 self.errors.push(x);
                 self.recover_to_declaration_boundary();
             };
         }
-
+        
         let decls_end = self.arena.decls.len() as u32;
-
+        
         self.expect(TokenKind::KwBegin)?;
-
+        
         let stmts_start = self.arena.stmts.len() as u32;
-
-        while let Some(tok) = self.lexer.peek() {
-            if tok.kind == TokenKind::KwEnd {
-                break;
-            }
+        
+        while !self.next_is(TokenKind::KwEnd) {
             // TODO: Parse concurrent assignments, processes, component instantiations
-            if let Err(x) = self.parse_concurrent_statement(){
+            if let Err(x) = self.parse_concurrent_statement() {
                 self.errors.push(x);
                 self.recover_to_statement_boundary();
             };
         }
-
-        let stmts_end = self.arena.stmts.len() as u32;
-
-        self.expect(TokenKind::KwEnd)?;
         
+        let stmts_end = self.arena.stmts.len() as u32;
+        
+        self.expect(TokenKind::KwEnd)?;
+
         //same with entity, possible are "end [architecture] [my_architecture]";
 
-        if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::KwArchitecture) {
+        if self.next_is(TokenKind::KwArchitecture) {
             self.advance();
         }
 
-        if self.next_is_ident() {
+        if self.next_is(TokenKind::Identifier) {
             let t = self.advance();
             let end_name = self.get_text(t.span);
 
@@ -116,7 +109,7 @@ impl<'a> Parser<'a> {
         if first_token.kind == TokenKind::KwProcess {
             return self.parse_process(None);
         }
-
+        
         if first_token.kind != TokenKind::Identifier {
             return self.err(
                 ParseErrorKind::ExpectedToken {
@@ -127,19 +120,16 @@ impl<'a> Parser<'a> {
             );
         }
         let identifier_name = self.get_text(first_token.span);
-
+        
         let next_tok = self.advance();
-
+        dbg!(identifier_name);
+        
         match next_tok.kind {
             TokenKind::OpSignalAssignOrLEq => {
-
-                let expr_start = self.lexer.peek().map(|t| t.span.start).unwrap_or(0);
+                let expr_start = self.lexer.peek().span.start;
                 let mut expr_end = expr_start;
 
-                while let Some(tok) = self.lexer.peek() {
-                    if tok.kind == TokenKind::Semicolon {
-                        break;
-                    }
+                while !self.next_is(TokenKind::Semicolon) {
                     expr_end = self.advance().span.end;
                 }
 
@@ -158,10 +148,9 @@ impl<'a> Parser<'a> {
 
             // Either a label or a component instantiation
             TokenKind::Colon => {
+                let after_colon = self.lexer.peek().kind;
 
-                let after_colon = &self.lexer.peek().expect("Unexpected EOF after label").kind;
-
-                if after_colon == &TokenKind::KwProcess {
+                if after_colon == TokenKind::KwProcess {
                     self.advance(); // Consume 'process'
                     self.parse_process(Some(first_token.span))
                 } else {
@@ -253,12 +242,9 @@ impl<'a> Parser<'a> {
         Ok(())
     }
     fn parse_process(&mut self, label: Option<Span>) -> ParseResult<StmtId> {
-        if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::LParen) {
+        if self.next_is(TokenKind::LParen) {
             self.advance();
-            while let Some(tok) = self.lexer.peek() {
-                if tok.kind == TokenKind::RParen {
-                    break;
-                }
+            while !self.next_is(TokenKind::RParen) {
                 self.advance();
             }
             self.expect(TokenKind::RParen)?;
@@ -270,10 +256,7 @@ impl<'a> Parser<'a> {
 
         let stmts_start = self.arena.stmts.len() as u32;
 
-        while let Some(tok) = self.lexer.peek() {
-            if tok.kind == TokenKind::KwEnd {
-                break;
-            }
+        while !self.next_is(TokenKind::KwEnd) {
             self.parse_sequential_statement()?;
         }
 
@@ -282,14 +265,14 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::KwEnd)?;
 
         // Handle optional "end process;" or "end process label;"
-        if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::KwProcess) {
+        if self.next_is(TokenKind::KwProcess) {
             self.advance();
         }
 
         let mut l = None;
 
         if let Some(lbl) = label {
-            if self.next_is_ident() {
+            if self.next_is(TokenKind::Identifier) {
                 let t = self.advance();
                 if self.get_text(t.span) != self.get_text(lbl) {
                     return self.err(
@@ -307,7 +290,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::Semicolon)?;
 
         let process_stmt = Stmt::Process {
-            label:l,
+            label: l,
             stmts_start: StmtId(stmts_start),
             stmts_end: StmtId(stmts_end),
         };
@@ -318,18 +301,17 @@ impl<'a> Parser<'a> {
         todo!()
     }
     fn parse_sequential_statement(&mut self) -> ParseResult<StmtId> {
-        match self.lexer.peek().map(|t| t.kind) {
-            Some(TokenKind::KwIf) => self.parse_if_statement(),
+        match self.lexer.peek().kind {
+            TokenKind::KwIf => self.parse_if_statement(),
 
             // TODO
             // TokenKind::KwCase => self.parse_case_statement(),
             // TokenKind::KwFor | TokenKind::KwWhile => self.parse_loop_statement(),
-            Some(TokenKind::Identifier) => {
+            TokenKind::Identifier => {
                 // It's an assignment (either signal <= or variable :=)
                 let name_tok = self.advance();
                 let target = self.get_text(name_tok.span);
 
-                
                 let next_tok = self.advance();
 
                 match next_tok.kind {
@@ -354,11 +336,16 @@ impl<'a> Parser<'a> {
                         };
                         Ok(self.arena.alloc_stmt(stmt))
                     }
-                    x => exp_tks!(x,name_tok.span,TokenKind::OpSignalAssignOrLEq,TokenKind::OpAssign),
+                    x => exp_tks!(
+                        x,
+                        name_tok.span,
+                        TokenKind::OpSignalAssignOrLEq,
+                        TokenKind::OpAssign
+                    ),
                 }
             }
-            None => panic!("Unexpected EOF"),
-            Some(tk) => panic!(
+            TokenKind::Eof => panic!("Unexpected EOF"),
+            tk => panic!(
                 "Syntax Error: Unexpected token {:?} in sequential statement",
                 tk
             ),
@@ -368,21 +355,22 @@ impl<'a> Parser<'a> {
     /// Discards tokens until we reach a semicolon or a major boundary.
     /// Returns true if it stopped on a semicolon (which we consume).
     fn recover_to_statement_boundary(&mut self) -> bool {
-        while let Some(token) = self.lexer.peek() {
+        while self.not_eof() {
+            let token = self.lexer.peek();
             match token.kind {
                 TokenKind::Semicolon => {
-                    self.lexer.next(); 
+                    self.advance();
                     return true;
                 }
-                TokenKind::KwEnd 
-                | TokenKind::KwBegin 
-                | TokenKind::KwElsif 
-                | TokenKind::KwElse 
+                TokenKind::KwEnd
+                | TokenKind::KwBegin
+                | TokenKind::KwElsif
+                | TokenKind::KwElse
                 | TokenKind::Eof => {
                     return false;
                 }
                 _ => {
-                    self.lexer.next(); 
+                    self.advance();
                 }
             }
         }
@@ -390,17 +378,18 @@ impl<'a> Parser<'a> {
     }
 
     fn recover_to_declaration_boundary(&mut self) {
-        while let Some(token) = self.lexer.peek() {
+        while self.not_eof() {
+            let token = self.lexer.peek();
             match token.kind {
                 TokenKind::Semicolon => {
-                    self.advance(); 
+                    self.advance();
                     break;
                 }
                 TokenKind::KwBegin | TokenKind::KwEnd | TokenKind::Eof => {
                     break;
                 }
                 _ => {
-                    self.advance(); 
+                    self.advance();
                 }
             }
         }
@@ -408,13 +397,10 @@ impl<'a> Parser<'a> {
     fn parse_if_statement(&mut self) -> ParseResult<StmtId> {
         self.advance(); // Consume if
 
-        let cond_start = self.lexer.peek().map(|t| t.span.start).unwrap_or(0);
+        let cond_start = self.lexer.peek().span.start;
         let mut cond_end = cond_start;
 
-        while let Some(tok) = self.lexer.peek() {
-            if tok.kind == TokenKind::KwThen {
-                break;
-            }
+        while !self.next_is(TokenKind::KwThen) {
             cond_end = self.advance().span.end;
         }
         let condition_span = Span {
@@ -424,10 +410,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::KwThen)?; // Consume 'then'
 
         let then_start = self.arena.stmts.len() as u32;
-        while let Some(tok) = self.lexer.peek() {
-            if tok.kind == TokenKind::KwElse || tok.kind == TokenKind::KwEnd {
-                break;
-            }
+        while !(self.next_is(TokenKind::KwElse) || self.next_is(TokenKind::KwEnd)) {
             self.parse_sequential_statement()?;
         }
         let then_end = self.arena.stmts.len() as u32;
@@ -442,21 +425,18 @@ impl<'a> Parser<'a> {
         let else_start = self.arena.stmts.len() as u32;
         let mut has_else = false;
 
-        if self.lexer.peek().map(|t| t.kind.clone()) == Some(TokenKind::KwElse) {
+        if self.next_is(TokenKind::KwElse) {
             self.advance(); // Consume 'else'
             has_else = true;
 
-            while let Some(tok) = self.lexer.peek() {
-                if tok.kind == TokenKind::KwEnd {
-                    break;
-                }
+            while !self.next_is(TokenKind::KwEnd) {
                 self.parse_sequential_statement()?;
             }
         }
         let else_end = self.arena.stmts.len() as u32;
 
         self.expect(TokenKind::KwEnd)?;
-        if self.lexer.peek().map(|t| t.kind.clone()) == Some(TokenKind::KwIf) {
+        if self.next_is(TokenKind::KwIf) {
             self.advance();
         }
         self.expect(TokenKind::Semicolon)?;

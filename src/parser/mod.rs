@@ -49,10 +49,10 @@ macro_rules! exp_tks {
     };
 }
 pub struct Parser<'a> {
-    lexer: Peekable<Lexer<'a>>,
+    lexer: Lexer<'a>,
     pub arena: AstArena<'a>,
     source: &'a str,
-    errors: Vec<ParseError>
+    errors: Vec<ParseError>,
 }
 #[derive(Debug, Clone)]
 pub enum ParseErrorKind {
@@ -82,17 +82,17 @@ pub type ParseResult<T> = Result<T, ParseError>;
 impl<'a> Parser<'a> {
     pub(crate) fn new(source: &'a str) -> Self {
         Self {
-            lexer: Lexer::new(source).peekable(),
+            lexer: Lexer::new(source),
             arena: AstArena::new(),
             source,
-            errors:vec![]
+            errors: vec![],
         }
     }
 
     pub(crate) fn parse(&mut self) {
-        while let Some(token) = self.lexer.peek() {
-            let t = token.clone();
-            match token.kind {
+        loop {
+            let next = self.lexer.peek();
+            match next.kind {
                 TokenKind::KwEntity => {
                     let res = self.parse_entity();
                 }
@@ -109,8 +109,9 @@ impl<'a> Parser<'a> {
                     let res = self.parse_lib();
                 }
                 TokenKind::Eof => break,
-                _x => {
-                    dbg!(self.get_text(t.span));
+                x => {
+                    dbg!(x);
+                    dbg!(self.get_text(next.span));
                     dbg!(self.errors.clone());
                     unreachable!("There's something wrong in the parsing")
                 }
@@ -123,14 +124,15 @@ impl<'a> Parser<'a> {
         Err(ParseError { kind, span })
     }
     fn advance(&mut self) -> Token {
-        self.lexer.next().unwrap_or_else(|| Token {
-            kind: TokenKind::Eof,
-            span: Span { start: 0, end: 0 },
-        })
+        self.lexer.next()
     }
     fn expect(&mut self, expected: TokenKind) -> ParseResult<Token> {
         let token = self.advance();
         if token.kind != expected {
+            if token.kind == TokenKind::Eof {
+                dbg!(token.clone());
+                return self.err(ParseErrorKind::UnexpectedEof, token.span);
+            }
             return self.err(
                 ParseErrorKind::ExpectedToken {
                     expected,
@@ -148,20 +150,26 @@ impl<'a> Parser<'a> {
     fn parse_port_clause(&mut self) -> ParseResult<(PortId, PortId)> {
         let ports_start = self.arena.ports.len() as u32;
 
-        if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::KwPort) {
+        if self.lexer.peek().kind == TokenKind::KwPort {
             self.advance();
             self.expect(TokenKind::LParen)?;
 
             loop {
                 self.parse_port()?;
 
-                let next_kind = self.lexer.peek().map(|t| t.kind);
-                if next_kind == Some(TokenKind::Semicolon) {
+                let next = self.lexer.peek();
+
+                if next.kind == TokenKind::Semicolon {
                     self.advance();
-                } else if next_kind == Some(TokenKind::RParen) {
+                } else if next.kind == TokenKind::RParen {
                     break;
                 } else {
-                    panic!("Syntax Error: Expected ';' or ')' after port declaration");
+                    exp_tks!(
+                        next.kind,
+                        next.span,
+                        TokenKind::Semicolon,
+                        TokenKind::RParen
+                    )
                 }
             }
             self.expect(TokenKind::RParen)?;
@@ -180,28 +188,24 @@ impl<'a> Parser<'a> {
 
         self.expect(TokenKind::Colon)?;
 
-        let mode = if let Some(tok) = self.lexer.peek() {
-            match tok.kind {
-                TokenKind::KwIn => {
-                    self.advance();
-                    PortMode::In
-                }
-                TokenKind::KwOut => {
-                    self.advance();
-                    PortMode::Out
-                }
-                TokenKind::KwInOut => {
-                    self.advance();
-                    PortMode::InOut
-                }
-                TokenKind::KwBuffer => {
-                    self.advance();
-                    PortMode::Buffer
-                }
-                _ => PortMode::In,
+        let mode = match self.lexer.peek().kind {
+            TokenKind::KwIn => {
+                self.advance();
+                PortMode::In
             }
-        } else {
-            PortMode::In
+            TokenKind::KwOut => {
+                self.advance();
+                PortMode::Out
+            }
+            TokenKind::KwInOut => {
+                self.advance();
+                PortMode::InOut
+            }
+            TokenKind::KwBuffer => {
+                self.advance();
+                PortMode::Buffer
+            }
+            _ => PortMode::In,
         };
 
         let type_span = self.slice_until_depth_zero(&[TokenKind::Semicolon, TokenKind::RParen])?;
@@ -223,19 +227,13 @@ impl<'a> Parser<'a> {
         Ok(span)
     }
 
-    fn next_is_ident(&mut self) -> bool {
-        self.lexer
-            .peek()
-            .map(|t| t.kind == TokenKind::Identifier)
-            .unwrap_or(false)
-    }
-
     fn slice_until_depth_zero(&mut self, terminators: &[TokenKind]) -> ParseResult<Span> {
-        let start = self.lexer.peek().map(|t| t.span.start).unwrap_or(0);
+        let start = self.lexer.peek().span.start;
         let mut end = start;
         let mut paren_depth = 0;
 
-        while let Some(tok) = self.lexer.peek() {
+        while self.not_eof(){
+            let tok = self.lexer.peek();
             if paren_depth == 0 && terminators.contains(&tok.kind) {
                 break;
             }
@@ -250,11 +248,18 @@ impl<'a> Parser<'a> {
         Ok(Span { start, end })
     }
 
+    /// `next != EOF`
+    fn not_eof(&mut self) -> bool{
+        self.lexer.peek().kind != TokenKind::Eof
+    }
+
     fn get_text(&self, span: Span) -> &'a str {
         &self.source[span.start..span.end]
     }
 
+    /// Returns `true` if next token is `next_kind`, without consuming it 
     fn next_is(&mut self, next_kind: TokenKind) -> bool {
-        self.lexer.peek().map(|f| f.kind) == Some(next_kind)
+        let k = self.lexer.peek().kind;
+        k == next_kind
     }
 }

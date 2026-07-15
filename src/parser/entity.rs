@@ -13,11 +13,11 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::KwEnd)?;
 
         // VHDL allows end [entity] [my_entity];
-        if self.lexer.peek().map(|t| t.kind) == Some(TokenKind::KwEntity) {
+        if self.lexer.peek().kind == TokenKind::KwEntity {
             self.advance();
         }
 
-        if self.next_is_ident() {
+        if self.next_is(TokenKind::Identifier) {
             let t = self.advance();
             if self.get_text(t.span) != entity_name {
                 panic!(
