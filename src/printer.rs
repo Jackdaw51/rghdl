@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::{
-    ast::{AstArena, ContextItem, Decl, Entity, Port, Stmt}, lexer::Span,
+    ast::{AstArena, ConcurrentStmt, ContextItem, Decl, ElsifBranch, Entity, Port, SequentialStmt}, lexer::Span,
 };
 
 pub struct FormatCtx<'a, T> {
@@ -33,7 +33,7 @@ impl<'a> Display for FormatCtx<'a, AstArena<'a>> {
         let arena = self.item;
 
         for c in &arena.contexts {
-            writeln!(f, "\n{}", self.child(c))?;
+            write!(f, "\n{}", self.child(c))?;
         }
 
         for e in &arena.entities {
@@ -55,7 +55,9 @@ impl<'a> Display for FormatCtx<'a, AstArena<'a>> {
             }
 
             writeln!(f, "\tStatements:")?;
-            for stmt in &arena.stmts[a.stmts_start.0 as usize..a.stmts_end.0 as usize] {
+            let conc_ids = &arena.conc_stmt_lists[a.stmts.start as usize..a.stmts.end as usize];
+            for id in conc_ids {
+                let stmt = &arena.concurrent_stmts[id.0 as usize];
                 writeln!(f, "\t\t{}", self.child(stmt))?;
             }
         }
@@ -63,10 +65,10 @@ impl<'a> Display for FormatCtx<'a, AstArena<'a>> {
     }
 }
 
-impl<'a> Display for FormatCtx<'a, Stmt<'a>> {
+impl<'a> Display for FormatCtx<'a, ConcurrentStmt<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.item {
-            Stmt::ConcurrentAssignment {
+            ConcurrentStmt::ConcurrentAssignment {
                 target,
                 expression_span,
             } => write!(
@@ -75,48 +77,96 @@ impl<'a> Display for FormatCtx<'a, Stmt<'a>> {
                 target,
                 self.get_text(expression_span)
             ),
-            Stmt::ConditionalAssignment { target } => todo!(),
-            Stmt::ComponentInstantiation {
+            ConcurrentStmt::ConditionalAssignment { target } => todo!(),
+            ConcurrentStmt::ComponentInstantiation {
                 label,
                 component_name,
                 port_map_span,
             } => todo!(),
-            Stmt::Process {
-                label,
-                stmts_start,
-                stmts_end,
-            } => write!(f, "Process -> label: {:?}", label),
-            Stmt::SequentialAssignment {
-                target,
-                expression_span,
-            } => write!(f, "Sequential assignment: {} <- {}", target,self.get_text(expression_span)),
-            Stmt::VariableAssignment {
-                target,
-                expression_span,
-            } => todo!(),
-            Stmt::If {
-                condition_span,
-                then_start,
-                then_end,
-                else_start,
-                else_end,
-                elsifs_start,
-                elsifs_end,
-            } => write!(f, "If statement: {:?}", self.get_text(condition_span)),
-            Stmt::Case {
-                expression_span,
-                cases_span,
-            } => todo!(),
-            Stmt::Loop {
-                label,
-                loop_scheme_span,
-                stmts_start,
-                stmts_end,
-            } => todo!(),
+            ConcurrentStmt::Process { label, stmts } => {
+                writeln!(f, "Process -> label: {:?}", label)?;
+                let seq_ids = &self.arena.seq_stmt_lists[stmts.start as usize..stmts.end as usize];
+                for id in seq_ids {
+                    let stmt = &self.arena.sequential_stmts[id.0 as usize];
+                    writeln!(f, "\t\t\t{}", self.child(stmt))?;
+                }
+                Ok(())
+            }
         }
     }
 }
 
+impl<'a> Display for FormatCtx<'a, SequentialStmt<'a>> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.item {
+            SequentialStmt::SequentialAssignment {
+                target,
+                expression_span,
+            } => writeln!(
+                f,
+                "\tSequential assignment: {} <= {}",
+                target,
+                self.get_text(expression_span)
+            ),
+            SequentialStmt::VariableAssignment {
+                target,
+                expression_span,
+            } => writeln!(
+                f,
+                "Variable assignment: {} := {}",
+                target,
+                self.get_text(expression_span)
+            ),
+            SequentialStmt::If {
+                condition_span,
+                then_stmts,
+                else_stmts,
+                elsif_stmts,
+            } => {
+                writeln!(f, "If statement: {}", self.get_text(condition_span))?;
+
+                let then_ids =
+                    &self.arena.seq_stmt_lists[then_stmts.start as usize..then_stmts.end as usize];
+                for id in then_ids {
+                    let stmt = &self.arena.sequential_stmts[id.0 as usize];
+                    writeln!(f, "\t\t\t\t{}", self.child(stmt))?;
+                }
+
+                for elsif in &self.arena.elsifs[elsif_stmts.start as usize..elsif_stmts.end as usize] {
+                    write!(f, "\t\t\t\t{}", self.child(elsif))?;
+                }
+
+                // ELSE block (via indirection table)
+                if !else_stmts.is_empty() {
+                    writeln!(f, "\t\t\telse:")?;
+                    let else_ids = &self.arena.seq_stmt_lists
+                        [else_stmts.start as usize..else_stmts.end as usize];
+                    for id in else_ids {
+                        let stmt = &self.arena.sequential_stmts[id.0 as usize];
+                        writeln!(f, "\t\t\t\t{}", self.child(stmt))?;
+                    }
+                }
+                Ok(())
+            }
+            SequentialStmt::Case { expression_span, cases_span } => todo!(),
+            SequentialStmt::Loop { label, loop_scheme_span, stmts } => todo!(),
+        }
+    }
+}
+
+impl<'a> Display for FormatCtx<'a, ElsifBranch> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let a = self.item;
+        writeln!(f, "elsif: {}", self.get_text(&a.condition_span))?;
+        let stmt_ids =
+            &self.arena.seq_stmt_lists[a.stmts.start as usize..a.stmts.end as usize];
+        for id in stmt_ids {
+            let stmt = &self.arena.sequential_stmts[id.0 as usize];
+            writeln!(f, "\t\t\t\t{}", self.child(stmt))?;
+        }
+        Ok(())
+    }
+}
 impl<'a> Display for FormatCtx<'a, Decl<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.item {
@@ -158,7 +208,7 @@ impl<'a> Display for FormatCtx<'a, Decl<'a>> {
 impl<'a> Display for FormatCtx<'a, ContextItem<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.item {
-            ContextItem::Library { name } => write!(f, "Library: {}", name),
+            ContextItem::Library { name } => write!(f, "Library {}", name),
             ContextItem::Use { path } => write!(f, "Path: {}", path),
         }
     }
@@ -169,8 +219,8 @@ impl<'a> Display for FormatCtx<'a, Port<'a>> {
         writeln!(f, "{}: {:?} {}", p.name, p.mode, p.port_type)
     }
 }
-impl <'a> Display for FormatCtx<'a, Entity<'a>> {
+impl<'a> Display for FormatCtx<'a, Entity<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f,"Entity - {}", self.item.name)
+        writeln!(f, "Entity - {}", self.item.name)
     }
 }

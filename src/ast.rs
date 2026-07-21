@@ -1,3 +1,5 @@
+use std::ops::{Index, Range};
+
 use crate::lexer::Span;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -7,14 +9,19 @@ pub struct PortId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EntityId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DeclId(pub u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StmtId(pub u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArchitectureId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ElsifId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeqStmtId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConcStmtId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeclId(pub u32);
 
 #[derive(Debug, Clone)]
 pub enum ContextItem<'a> {
@@ -70,7 +77,39 @@ pub enum Decl<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub enum Stmt<'a> {
+pub enum SequentialStmt<'a> {
+    SequentialAssignment {
+        target: &'a str,
+        expression_span: Span,
+    },
+    // var := var + 1;
+    VariableAssignment {
+        target: &'a str,
+        expression_span: Span,
+    },
+    // if condition then ... else ... end if;
+    If {
+        condition_span: Span,
+        then_stmts: Range<u32>,
+        elsif_stmts: Range<u32>,
+        else_stmts: Range<u32>,
+    },
+    // case state is when IDLE => ... when others => ... end case;
+    Case {
+        expression_span: Span,
+        cases_span: Span,
+    },
+
+    // for i in 0 to 7 loop ... end loop;
+    Loop {
+        label: Option<&'a str>,
+        loop_scheme_span: Span, // "for i in 0 to 7"
+        stmts: Range<u32>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum ConcurrentStmt<'a> {
     ConcurrentAssignment {
         target: &'a str,
         expression_span: Span,
@@ -91,45 +130,7 @@ pub enum Stmt<'a> {
     // My_Process: process(clk) begin ... end process;
     Process {
         label: Option<&'a str>,
-        stmts_start: StmtId,
-        stmts_end: StmtId,
-    },
-
-    // sig <= '1'; it looks like concurrent, but it's inside a clocked process
-    SequentialAssignment {
-        target: &'a str,
-        expression_span: Span,
-    },
-
-    // var := var + 1;
-    VariableAssignment {
-        target: &'a str,
-        expression_span: Span,
-    },
-
-    // if condition then ... else ... end if;
-    If {
-        condition_span: Span,
-        then_start: StmtId,
-        then_end: StmtId,
-        elsifs_start: ElsifId,
-        elsifs_end: ElsifId,
-        else_start: Option<StmtId>,
-        else_end: Option<StmtId>,
-    },
-
-    // case state is when IDLE => ... when others => ... end case;
-    Case {
-        expression_span: Span,
-        cases_span: Span,
-    },
-
-    // for i in 0 to 7 loop ... end loop;
-    Loop {
-        label: Option<&'a str>,
-        loop_scheme_span: Span, // "for i in 0 to 7"
-        stmts_start: StmtId,
-        stmts_end: StmtId,
+        stmts: Range<u32>,
     },
 }
 
@@ -139,15 +140,13 @@ pub struct Architecture<'a> {
     pub entity_name: &'a str,
     pub decls_start: DeclId,
     pub decls_end: DeclId,
-    pub stmts_start: StmtId,
-    pub stmts_end: StmtId,
+    pub stmts: Range<u32>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ElsifBranch {
     pub condition_span: Span,
-    pub stmts_start: StmtId,
-    pub stmts_end: StmtId,
+    pub stmts: Range<u32>,
 }
 
 #[derive(Default, Debug)]
@@ -156,9 +155,14 @@ pub struct AstArena<'a> {
     pub ports: Vec<Port<'a>>,
     pub entities: Vec<Entity<'a>>,
     pub decls: Vec<Decl<'a>>,
-    pub stmts: Vec<Stmt<'a>>,
     pub architectures: Vec<Architecture<'a>>,
     pub elsifs: Vec<ElsifBranch>, // can't be a simple statement otherwise you lose the slice trick
+
+    pub sequential_stmts: Vec<SequentialStmt<'a>>,
+    pub seq_stmt_lists: Vec<SeqStmtId>,
+
+    pub concurrent_stmts: Vec<ConcurrentStmt<'a>>,
+    pub conc_stmt_lists: Vec<ConcStmtId>,
 }
 impl<'a> AstArena<'a> {
     pub fn new() -> Self {
@@ -169,11 +173,6 @@ impl<'a> AstArena<'a> {
         let id = self.ports.len() as u32;
         self.ports.push(port);
         PortId(id)
-    }
-    pub fn alloc_elsif(&mut self, elsifs: ElsifBranch) -> ElsifId{
-        let id = self.elsifs.len() as u32;
-        self.elsifs.push(elsifs);
-        ElsifId(id)
     }
 
     pub fn alloc_entity(&mut self, entity: Entity<'a>) -> EntityId {
@@ -191,10 +190,15 @@ impl<'a> AstArena<'a> {
         self.decls.push(decl);
         DeclId(id)
     }
-    pub fn alloc_stmt(&mut self, stmt: Stmt<'a>) -> StmtId {
-        let id = self.stmts.len() as u32;
-        self.stmts.push(stmt);
-        StmtId(id)
+    pub fn alloc_conc_stmt(&mut self, stmt: ConcurrentStmt<'a>) -> ConcStmtId {
+        let id = self.concurrent_stmts.len() as u32;
+        self.concurrent_stmts.push(stmt);
+        ConcStmtId(id)
+    }
+    pub fn alloc_seq_stmt(&mut self,stmt:SequentialStmt<'a>)->SeqStmtId{
+        let id = self.sequential_stmts.len() as u32;
+        self.sequential_stmts.push(stmt);
+        SeqStmtId(id)
     }
 
     pub fn alloc_architecture(&mut self, arch: Architecture<'a>) -> ArchitectureId {
@@ -209,7 +213,7 @@ impl<'a> std::fmt::Display for AstArena<'a> {
         write!(
             f,
             "{:?},\n\n{:?},\n\n{:?},\n\n{:?},\n\n{:?},\n\n{:?}",
-            self.contexts, self.entities, self.ports, self.architectures, self.decls, self.stmts,
+            self.contexts, self.entities, self.ports, self.architectures, self.decls, self.concurrent_stmts,
         )
     }
 }
