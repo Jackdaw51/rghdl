@@ -64,17 +64,20 @@ begin
     audio_out <= std_logic_vector(SINE_ROM(rom_addr));
 
     -- Process to spin the pointer
-    process (clk)
+    proc : process (clk)
     begin
         if rising_edge(clk) then
             if reset = '1' then
                 phase_acc <= (others => '0');
+                a <= '1';
+                b <= '2';
             elsif ce_48k = '1' then
                 -- Move the pointer forward by the step size every audio sample
                 phase_acc <= phase_acc + PHASE_STEP;
             end if;
         else
             y <= '1';
+            x <= '2';
         end if;
     end process;
 

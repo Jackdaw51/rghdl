@@ -1,4 +1,3 @@
-use std::iter::Peekable;
 mod architecture;
 mod entity;
 mod library;
@@ -92,6 +91,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse(&mut self) {
         loop {
             let next = self.lexer.peek();
+            println!("{:?}",next);
             match next.kind {
                 TokenKind::KwEntity => {
                     let res = self.parse_entity();

@@ -286,15 +286,22 @@ impl<'a> Parser<'a> {
         Ok(())
     }
     fn parse_process(&mut self, label: Option<Span>) -> ParseResult<ConcurrentStmt<'a>> {
+
+        let mut process_vars = None;
+
         if self.next_is(TokenKind::LParen) {
-            self.advance();
+            let start = self.advance().span.start;
             while !self.next_is(TokenKind::RParen) {
                 self.advance();
             }
-            self.expect(TokenKind::RParen)?;
+            let end = self.expect(TokenKind::RParen)?.span.end;
+            process_vars = Some(self.get_text(Span { start, end }));
         }
 
         // TODO: optional process variables
+
+
+        
 
         self.expect(TokenKind::KwBegin)?;
 
@@ -321,13 +328,13 @@ impl<'a> Parser<'a> {
                         t.span,
                     );
                 }
-                l = Some(self.get_text(t.span))
             }
+            l = Some(self.get_text(lbl));
         }
 
         self.expect(TokenKind::Semicolon)?;
 
-        Ok(ConcurrentStmt::Process { label: l, stmts })
+        Ok(ConcurrentStmt::Process { label: l, stmts, process_vars })
     }
     fn parse_component_instantiation(&self, identifier_name: &str) -> ParseResult<ConcurrentStmt<'a>> {
         todo!()

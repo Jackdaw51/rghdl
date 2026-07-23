@@ -43,6 +43,11 @@ pub struct Port<'a> {
     pub mode: PortMode,
     pub port_type: &'a str,
 }
+impl <'a>PartialEq for Port<'a>{
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.mode == other.mode && self.port_type == other.port_type
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Entity<'a> {
@@ -130,6 +135,7 @@ pub enum ConcurrentStmt<'a> {
     // My_Process: process(clk) begin ... end process;
     Process {
         label: Option<&'a str>,
+        process_vars: Option<&'a str>,
         stmts: Range<u32>,
     },
 }
