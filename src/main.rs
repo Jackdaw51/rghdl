@@ -1,10 +1,12 @@
+#![doc = include_str!("../README.md")]
+
+
 use std::fmt::Write;
 use std::fs;
 
-use crate::{parser::Parser, printer::FormatCtx};
+use crate::{analyzer::SemanticAnalyzer,analyzer::symbol_table::SymbolTable, parser::Parser, printer::FormatCtx};
 
-pub(crate) mod ast;
-pub(crate) mod lexer;
+mod analyzer;
 mod parser;
 mod printer;
 
@@ -19,7 +21,7 @@ fn main() {
     let mut parser = Parser::new(&source_string);
     parser.parse();
     let mut f = String::new();
-    let _ = write!(
+    let a = write!(
         &mut f,
         "{}",
         FormatCtx {
@@ -29,14 +31,21 @@ fn main() {
             indent: 0
         }
     );
+    a.unwrap();
     println!("{f}");
-    let mut parser_1 = Parser::new(&f);
-    parser_1.parse();
-    let format = FormatCtx {
-            item: &parser_1.arena,
-            source: &f,
-            arena: &parser_1.arena,
-            indent: 0
-        };
-    println!("{format}");
+
+    // let mut parser_1 = Parser::new(&f);
+    let mut a = SemanticAnalyzer::new(&parser.arena, SymbolTable::new(), &source_string);
+    a.analyze_all();
+    println!("{:?}", a.errors);
+    // println!("{:?}",a.symbols);
+
+    // parser_1.parse();
+    // let format = FormatCtx {
+    //         item: &parser_1.arena,
+    //         source: &f,
+    //         arena: &parser_1.arena,
+    //         indent: 0
+    //     };
+    // println!("{format}");
 }

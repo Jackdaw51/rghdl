@@ -12,6 +12,7 @@ entity sine_wave_440hz is
     );
 end sine_wave_440hz;
 
+
 architecture Behavioral of sine_wave_440hz is
     -- We use a 16-bit counter to keep track of where we are in the wave.
     signal phase_acc : unsigned(15 downto 0) := (others => '0');
@@ -19,7 +20,6 @@ architecture Behavioral of sine_wave_440hz is
     -- Formula: Step = (Target_Hz * 2^Accumulator_Bits) / Sample_Rate
     -- Step = (440 * 65536) / 48000 = 600.74 (Round to 601)
     constant PHASE_STEP : unsigned(15 downto 0) := to_unsigned(601, 16);
-
     -- Define the Wheel (ROM type: 256 entries of 24-bit audio)
     -- type rom_type is array (0 to 255) of signed(23 downto 0);
 
@@ -46,6 +46,8 @@ architecture Behavioral of sine_wave_440hz is
     -- Signal to hold the top 8 bits of the accumulator (our ROM address)
     signal rom_addr : integer range 0 to 255;
 
+    constant rom_addr : std_logic;
+
     -- component square_wave_440hz
     --     port (
     --         clk : in std_logic;
@@ -54,6 +56,10 @@ architecture Behavioral of sine_wave_440hz is
     --         audio_out : out std_logic_vector (23 downto 0)
     --     );
     -- end component;
+    signal a : std_logic;
+    signal b : std_logic;
+    signal x : std_logic;
+    signal y : std_logic;
 
 begin
 
@@ -64,20 +70,31 @@ begin
     audio_out <= std_logic_vector(SINE_ROM(rom_addr));
 
     -- Process to spin the pointer
-    proc : process (clk)
+    process (clk)
     begin
         if rising_edge(clk) then
             if reset = '1' then
                 phase_acc <= (others => '0');
                 a <= '1';
                 b <= '2';
-            elsif ce_48k = '1' then
+            elsif not (ce_48k = '1') then
+                if something = '1' then
+                    a <= '2';
+                elsif something_2 = '2' then
+                    b <= '1';
+                end if;
                 -- Move the pointer forward by the step size every audio sample
                 phase_acc <= phase_acc + PHASE_STEP;
             end if;
         else
-            y <= '1';
+            y <= abs('1');
             x <= '2';
+        end if;
+    end process;
+    process (clk)
+    begin
+        if clk = '1' then
+            x <= '1';
         end if;
     end process;
 

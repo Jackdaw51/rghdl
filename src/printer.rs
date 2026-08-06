@@ -1,7 +1,10 @@
 use std::fmt::Display;
 
-use crate::{
-    ast::{AstArena, ConcurrentStmt, ContextItem, Decl, ElsifBranch, Entity, Port, SequentialStmt},
+use crate::parser::{
+    ast::{
+        AstArena, ConcurrentStmt, ContextItem, Decl, ElsifBranch, Entity, Expr, ExprId, Port,
+        SequentialStmt, UnaryOp,
+    },
     lexer::Span,
 };
 
@@ -34,6 +37,9 @@ impl<'a, T> FormatCtx<'a, T> {
     fn pad(&self) -> String {
         "\t".repeat(self.indent)
     }
+    fn get_expr(&self, expr_id: ExprId) -> &Expr<'a> {
+        &self.arena.exprs[expr_id.0 as usize]
+    }
 
     // let stmt_ctx = FormatCtx {
     //                 item: stmt,
@@ -58,7 +64,12 @@ impl<'a> Display for FormatCtx<'a, AstArena<'a>> {
 
         writeln!(f)?;
         for a in &arena.architectures {
-            writeln!(f, "architecture {} of {} is", a.name, a.entity_name)?;
+            writeln!(
+                f,
+                "architecture {} of {} is",
+                a.name,
+                self.get_text(&a.entity_name)
+            )?;
             for decls in &arena.decls[a.decls_start.0 as usize..a.decls_end.0 as usize] {
                 write!(f, "{}", self.child_indented(decls))?;
             }
@@ -76,14 +87,61 @@ impl<'a> Display for FormatCtx<'a, AstArena<'a>> {
     }
 }
 
+impl<'a> Display for FormatCtx<'a, Expr<'a>> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.item {
+            Expr::Literal { text, span } => write!(f, "{}", text),
+            Expr::Identifier { name, span } => write!(f, "{}", name),
+            Expr::Binary { op, lhs, rhs, span } => {
+                write!(
+                    f,
+                    "{} {} {}",
+                    self.child(self.get_expr(*lhs)),
+                    op,
+                    self.child(self.get_expr(*rhs))
+                )
+            }
+            Expr::Unary { op, expr, span } => {
+                let _ = write!(f, "{}", op);
+                if matches!(op, UnaryOp::Abs | UnaryOp::Not) {
+                    let _ = write!(f, " ");
+                };
+                write!(f, "{}", self.child(self.get_expr(*expr)))
+            }
+            Expr::Grouping { expr, span } => write!(f, "({})", self.child(self.get_expr(*expr))),
+            Expr::CallOrIndex { callee, args, span } => write!(f, "{}", self.get_text(span)),
+            Expr::Others { span } => todo!(),
+            Expr::Aggregate { elements, span } => write!(f, "{}", self.get_text(span)),
+            Expr::Slice {
+                target,
+                direction,
+                left,
+                right,
+                span,
+            } => todo!(),
+            Expr::RecordAccess {
+                target,
+                field,
+                span,
+            } => todo!(),
+        }
+    }
+}
+
 impl<'a> Display for FormatCtx<'a, ConcurrentStmt<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.pad())?;
         match self.item {
             ConcurrentStmt::ConcurrentAssignment {
                 target,
-                expression_span,
-            } => writeln!(f, "{} <= {};", target, self.get_text(expression_span)),
+                label,
+                expression,
+            } => writeln!(
+                f,
+                "{} <= {};",
+                self.child(self.get_expr(*target)),
+                self.child(self.get_expr(*expression))
+            ),
             ConcurrentStmt::ConditionalAssignment { target } => todo!(),
             ConcurrentStmt::ComponentInstantiation {
                 label,
@@ -110,8 +168,7 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt<'a>> {
                     let stmt = &self.arena.sequential_stmts[id.0 as usize];
                     write!(f, "{}", self.child_indented(stmt))?;
                 }
-                writeln!(f)?;
-                writeln!(f,"{}end process;",self.pad())?;
+                writeln!(f, "{}end process;", self.pad())?;
                 Ok(())
             }
         }
@@ -122,21 +179,25 @@ impl<'a> Display for FormatCtx<'a, SequentialStmt<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.pad())?;
         match self.item {
-            SequentialStmt::SequentialAssignment {
-                target,
-                expression_span,
-            } => write!(f, "{} <= {};", target, self.get_text(expression_span)),
-            SequentialStmt::VariableAssignment {
-                target,
-                expression_span,
-            } => writeln!(f, "{} := {}", target, self.get_text(expression_span)),
+            SequentialStmt::SequentialAssignment { target, expression } => write!(
+                f,
+                "{} <= {};",
+                self.child(self.get_expr(*target)),
+                self.child(self.get_expr(*expression))
+            ),
+            SequentialStmt::VariableAssignment { target, expression } => write!(
+                f,
+                "{} <= {};",
+                self.child(self.get_expr(*target)),
+                self.child(self.get_expr(*expression))
+            ),
             SequentialStmt::If {
-                condition_span,
+                condition,
                 then_stmts,
                 else_stmts,
                 elsif_stmts,
             } => {
-                writeln!(f, "if {} then", self.get_text(condition_span))?;
+                writeln!(f, "if {} then", self.child(self.get_expr(*condition)))?;
 
                 let then_ids =
                     &self.arena.seq_stmt_lists[then_stmts.start as usize..then_stmts.end as usize];
@@ -148,7 +209,7 @@ impl<'a> Display for FormatCtx<'a, SequentialStmt<'a>> {
                 for elsif in
                     &self.arena.elsifs[elsif_stmts.start as usize..elsif_stmts.end as usize]
                 {
-                    writeln!(f, "{}", self.child(elsif))?;
+                    write!(f, "{}", self.child(elsif))?;
                 }
 
                 if !else_stmts.is_empty() {
@@ -161,7 +222,8 @@ impl<'a> Display for FormatCtx<'a, SequentialStmt<'a>> {
                         writeln!(f, "{}", self.child_indented(stmt))?;
                     }
                 }
-                write!(f, "{}end if;", self.pad())?;
+                writeln!(f)?;
+                writeln!(f, "{}end if;", self.pad())?;
                 Ok(())
             }
             SequentialStmt::Case {
@@ -173,6 +235,7 @@ impl<'a> Display for FormatCtx<'a, SequentialStmt<'a>> {
                 loop_scheme_span,
                 stmts,
             } => todo!(),
+            SequentialStmt::ProcedureCall { call } => todo!(),
         }
     }
 }
@@ -181,7 +244,7 @@ impl<'a> Display for FormatCtx<'a, ElsifBranch> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.pad())?;
         let a = self.item;
-        writeln!(f, "elsif {} then", self.get_text(&a.condition_span))?;
+        writeln!(f, "elsif {} then", self.child(self.get_expr(*&a.condition)))?;
         let stmt_ids = &self.arena.seq_stmt_lists[a.stmts.start as usize..a.stmts.end as usize];
         for id in stmt_ids {
             let stmt = &self.arena.sequential_stmts[id.0 as usize];
@@ -221,15 +284,11 @@ impl<'a> Display for FormatCtx<'a, Decl<'a>> {
                 decl_type,
                 default_val,
             } => {
-                write!(
-                    f,
-                    "variable {} : {}",
-                    name, decl_type
-                )?;
-                if let Some(x) = default_val{
-                    write!(f," := {x}")?;
+                write!(f, "variable {} : {}", name, decl_type)?;
+                if let Some(x) = default_val {
+                    write!(f, " := {x}")?;
                 }
-                writeln!(f,";")
+                writeln!(f, ";")
             }
             Decl::Component {
                 name: _,
@@ -260,13 +319,12 @@ impl<'a> Display for FormatCtx<'a, Entity<'a>> {
         writeln!(f, "entity {} is", self.item.name)?;
         writeln!(f, "\tport (")?;
         let ids = &arena.ports[entity.ports_start.0 as usize..entity.ports_end.0 as usize];
-        for ports in ids{
+        for ports in ids {
             write!(f, "{}", self.child_indented(ports))?;
-            if ids.last().unwrap() != ports{
-                write!(f,";")?;
+            if ids.last().unwrap() != ports {
+                write!(f, ";")?;
             }
             writeln!(f)?;
-            
         }
         writeln!(f, "\t);")?;
         writeln!(f, "end {};", entity.name)?;

@@ -1,6 +1,10 @@
 use super::Parser;
 
-use crate::{ast::{ContextId, ContextItem}, lexer::TokenKind, parser::ParseResult};
+use crate::{
+    parser::ParseResult,
+    parser::ast::{ContextId, ContextItem},
+    parser::lexer::TokenKind,
+};
 
 impl<'a> Parser<'a> {
     pub(super) fn parse_lib(&mut self) -> ParseResult<ContextId> {

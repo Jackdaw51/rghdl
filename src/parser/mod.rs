@@ -1,17 +1,28 @@
-mod architecture;
-mod entity;
-mod library;
-
-use crate::{
-    ast::*,
+use crate::parser::{
+    ast::{AstArena, Port, PortId, PortMode},
     lexer::{Lexer, Span, Token, TokenKind},
 };
 
-///Usage (found, span, expected[4])
+mod architecture;
+pub(crate) mod ast;
+mod entity;
+pub(crate) mod lexer;
+mod library;
+mod tests;
+mod expressions;
+#[derive(Debug, Clone)]
+pub struct ParseError {
+    pub kind: ParseErrorKind,
+    pub span: Span,
+}
+
+pub type ParseResult<T> = Result<T, ParseError>;
+
+/// Usage (found, span, expected[4])
 #[macro_export]
 macro_rules! exp_tks {
     ($found:expr, $span:expr, $t1:expr) => {
-        return Err(ParseError {
+        return Err($crate::parser::ParseError {
             kind: ParseErrorKind::ExpectedTokens {
                 expected: [Some($t1), None, None, None],
                 found: $found,
@@ -20,7 +31,7 @@ macro_rules! exp_tks {
         })
     };
     ($found:expr, $span:expr, $t1:expr, $t2:expr) => {
-        return Err(ParseError {
+        return Err($crate::parser::ParseError {
             kind: ParseErrorKind::ExpectedTokens {
                 expected: [Some($t1), Some($t2), None, None],
                 found: $found,
@@ -29,7 +40,7 @@ macro_rules! exp_tks {
         })
     };
     ($found:expr, $span:expr, $t1:expr, $t2:expr, $t3:expr) => {
-        return Err(ParseError {
+        return Err($crate::parser::ParseError {
             kind: ParseErrorKind::ExpectedTokens {
                 expected: [Some($t1), Some($t2), Some($t3), None],
                 found: $found,
@@ -38,7 +49,7 @@ macro_rules! exp_tks {
         })
     };
     ($found:expr, $span:expr, $t1:expr, $t2:expr, $t3:expr, $t4:expr) => {
-        return Err(ParseError {
+        return Err($crate::parser::ParseError {
             kind: ParseErrorKind::ExpectedTokens {
                 expected: [Some($t1), Some($t2), Some($t3), Some($t4)],
                 found: $found,
@@ -48,9 +59,9 @@ macro_rules! exp_tks {
     };
 }
 pub struct Parser<'a> {
-    lexer: Lexer<'a>,
+    pub(crate) lexer: Lexer<'a>,
     pub arena: AstArena<'a>,
-    source: &'a str,
+    pub source: &'a str,
     errors: Vec<ParseError>,
 }
 #[derive(Debug, Clone)]
@@ -70,14 +81,6 @@ pub enum ParseErrorKind {
     UnexpectedEof,
 }
 
-#[derive(Debug, Clone)]
-pub struct ParseError {
-    pub kind: ParseErrorKind,
-    pub span: Span,
-}
-
-pub type ParseResult<T> = Result<T, ParseError>;
-
 impl<'a> Parser<'a> {
     pub(crate) fn new(source: &'a str) -> Self {
         Self {
@@ -91,7 +94,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse(&mut self) {
         loop {
             let next = self.lexer.peek();
-            println!("{:?}",next);
+            println!("{:?}", next);
             match next.kind {
                 TokenKind::KwEntity => {
                     let res = self.parse_entity();
@@ -110,14 +113,40 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Eof => break,
                 x => {
-                    dbg!(x);
-                    dbg!(self.get_text(next.span));
-                    dbg!(self.errors.clone());
-                    unreachable!("There's something wrong in the parsing")
+                    panic!(
+                        "There's something wrong in the parsing, check around {} at line {}.",
+                        self.get_text(next.span),
+                        self.lexer.get_current_line()
+                    )
+                    // Maybe doesn't account for all parsing error, so panics reporting what is wrong
+                    // panics if semicolon on last port variable TODO
                 }
             };
         }
-        dbg!("Errors: ", self.errors.clone());
+    }
+
+    fn print_errors(&self) {
+        for error in &self.errors {
+            println!(
+                "{:?}, line {}",
+                error.kind,
+                self.get_line_from_span(error.span)
+            );
+        }
+    }
+
+    fn get_line_from_span(&self, span: Span) -> u32 {
+        let mut line = 1;
+        for (c, i) in self.source.as_bytes().iter().enumerate() {
+            if *i as char == '\n' {
+                line += 1;
+            }
+            if c == span.start {
+                break;
+            }
+        }
+
+        line
     }
 
     fn err<T>(&self, kind: ParseErrorKind, span: Span) -> ParseResult<T> {
@@ -144,6 +173,7 @@ impl<'a> Parser<'a> {
         Ok(token)
     }
 
+    
     /// Parses `port ( ... );` and returns the slice of IDs allocated in the arena.
     ///
     /// If none is present it ```PortId == PortId```
@@ -213,6 +243,7 @@ impl<'a> Parser<'a> {
 
         let port = Port {
             name,
+            name_span: name_tok.span,
             mode,
             port_type,
         };
@@ -223,7 +254,7 @@ impl<'a> Parser<'a> {
     /// Fast forwards to ```;``` consuming it
     fn fast_forward_to_semicolon(&mut self) -> ParseResult<Span> {
         let span = self.slice_until_depth_zero(&[TokenKind::Semicolon])?;
-        self.expect(TokenKind::Semicolon)?; // Safely consume the semicolon
+        self.expect(TokenKind::Semicolon)?; // consume the semicolon
         Ok(span)
     }
 
@@ -232,7 +263,7 @@ impl<'a> Parser<'a> {
         let mut end = start;
         let mut paren_depth = 0;
 
-        while self.not_eof(){
+        while self.not_eof() {
             let tok = self.lexer.peek();
             if paren_depth == 0 && terminators.contains(&tok.kind) {
                 break;
@@ -249,7 +280,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `next != EOF`
-    fn not_eof(&mut self) -> bool{
+    fn not_eof(&mut self) -> bool {
         self.lexer.peek().kind != TokenKind::Eof
     }
 
@@ -257,9 +288,10 @@ impl<'a> Parser<'a> {
         &self.source[span.start..span.end]
     }
 
-    /// Returns `true` if next token is `next_kind`, without consuming it 
+    /// Returns `true` if next token is `next_kind`, without consuming it
     fn next_is(&mut self, next_kind: TokenKind) -> bool {
         let k = self.lexer.peek().kind;
         k == next_kind
     }
+
 }

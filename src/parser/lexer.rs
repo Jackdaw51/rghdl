@@ -1,5 +1,3 @@
-// Let's make this shi allocation free
-
 use std::{iter::Peekable, str::Chars};
 
 #[derive(Clone, Debug, PartialEq, Copy)]
@@ -57,7 +55,18 @@ pub enum TokenKind {
     KwConstant,
     KwComponent,
     KwVariable,
+    KwNot,
+    KwOthers,
+    KwDownto,
+    KwTo,
+    KwAnd,
+    KwOr,
+    KwXor,
+    KwNand,
+    KwNor,
+    KwAbs,
 
+    // TODO * and /
     OpAssign,            // :=
     OpArrow,             // => (Port mapping)
     OpSignalAssignOrLEq, // <= Signal assignment or less equal
@@ -69,6 +78,8 @@ pub enum TokenKind {
     OpBox,               // <> (Unconstrained range)
     OpPlus,              // +
     OpMinus,             // -
+    OpStar,              // *
+    OpSlash,             // /
     Colon,               // :
     Semicolon,           // ;
     Comma,               // ,
@@ -107,6 +118,17 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("constant", TokenKind::KwConstant),
     ("component", TokenKind::KwComponent),
     ("variable", TokenKind::KwVariable),
+    ("not", TokenKind::KwNot),
+    ("others", TokenKind::KwOthers),
+    ("downto", TokenKind::KwDownto),
+    ("to", TokenKind::KwTo),
+    ("and", TokenKind::KwAnd),
+    ("not", TokenKind::KwNot),
+    ("or", TokenKind::KwOr),
+    ("xor", TokenKind::KwXor),
+    ("nand", TokenKind::KwNand),
+    ("nor", TokenKind::KwNor),
+    ("abs",TokenKind::KwAbs)
 ];
 
 pub struct Lexer<'a> {
@@ -114,7 +136,8 @@ pub struct Lexer<'a> {
     chars: Peekable<Chars<'a>>,
     current_pos: usize,
     current_line: usize,
-    cached: Option<Token>,
+    cached_0: Option<Token>,
+    cached_1: Option<Token>,
 }
 
 impl<'a> Lexer<'a> {
@@ -124,8 +147,12 @@ impl<'a> Lexer<'a> {
             chars: source.chars().peekable(),
             current_pos: 0,
             current_line: 0,
-            cached: None,
+            cached_0: None,
+            cached_1: None,
         }
+    }
+    pub fn get_current_line(&self) -> usize {
+        self.current_line
     }
 
     fn next_token(&mut self) -> Token {
@@ -139,7 +166,7 @@ impl<'a> Lexer<'a> {
                 'a'..='z' | 'A'..='Z' => self.identifier_or_keyword(start_pos),
                 '0'..='9' => self.number(start_pos),
                 ':' | '<' | '=' => self.two_char(start_pos),
-                ';' | '.' | '(' | ')' | ',' | '+' | '-' => self.single_digit(start_pos),
+                ';' | '.' | '(' | ')' | ',' | '+' | '-' | '*' | '/' => self.single_digit(start_pos),
                 '"' => self.string_lit(start_pos),
                 '\'' => self.tick_or_char_lit(start_pos),
                 x => self.unknown(x),
@@ -312,6 +339,8 @@ impl<'a> Lexer<'a> {
                 ':' => TokenKind::Colon,
                 '+' => TokenKind::OpPlus,
                 '-' => TokenKind::OpMinus,
+                '*' => TokenKind::OpStar,
+                '/' => TokenKind::OpSlash,
                 _ => unreachable!(),
             }
         }
@@ -449,16 +478,26 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn peek(&mut self) -> Token {
-        if let Some(token) = self.cached {
+        if let Some(token) = self.cached_0 {
             return token;
         }
-
         let token = self.next_token();
-        self.cached = Some(token);
+        self.cached_0 = Some(token);
         token
     }
-    pub fn next(&mut self) -> Token{
-        if let Some(token) = self.cached.take(){
+    pub fn peek_next(&mut self) -> Token {
+        if self.cached_0.is_none() {
+            self.cached_0 = Some(self.next_token());
+        }
+        if let Some(token) = self.cached_1 {
+            return token;
+        }
+        let token = self.next_token();
+        self.cached_1 = Some(token);
+        token
+    }
+    pub fn next(&mut self) -> Token {
+        if let Some(token) = self.cached_0.take() {
             return token;
         }
         self.next_token()

@@ -1,4 +1,8 @@
-use crate::{ast::{Entity, EntityId}, lexer::TokenKind, parser::{ParseResult, Parser}};
+use crate::{
+    parser::ast::{Entity, EntityId},
+    parser::lexer::TokenKind,
+    parser::{ParseResult, Parser},
+};
 
 impl<'a> Parser<'a> {
     pub(super) fn parse_entity(&mut self) -> ParseResult<EntityId> {
@@ -32,11 +36,11 @@ impl<'a> Parser<'a> {
 
         let entity = Entity {
             name: entity_name,
+            name_span: name_token.span,
             ports_start,
             ports_end,
         };
-
+        
         Ok(self.arena.alloc_entity(entity))
     }
-    
 }
