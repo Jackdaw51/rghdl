@@ -2,7 +2,7 @@ mod semantic;
 pub(crate) mod types;
 mod scope_tree;
 pub(super) mod symbol_table;
-mod symbols;
+pub(crate) mod symbols;
 mod type_inference;
 use std::fmt::Debug;
 
