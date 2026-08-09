@@ -11,8 +11,8 @@ impl<'a> super::SemanticAnalyzer<'a> {
             self.analyze_entity(entity, i as u32);
         }
 
-        for arch in &self.ast.architectures {
-            self.analyze_architecture(arch);
+        for (i, arch) in self.ast.architectures.iter().enumerate() {
+            self.analyze_architecture(arch, i as u32);
         }
     }
 
@@ -27,7 +27,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
             self.current_scope,
             entity_sym,
             DeclRef::Entity {
-                ast_id: entity_id,
+                entity_id: EntityId(entity_id),
                 scope_id: entity_scope,
             },
         ) {
@@ -62,7 +62,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
         self.current_scope = prev_scope;
     }
 
-    fn analyze_architecture(&mut self, arch: &Architecture<'a>) {
+    fn analyze_architecture(&mut self, arch: &Architecture<'a>, arch_id: u32) {
         // Link Architecture Scope -> Entity Scope -> Global Scope
         let entity_sym = self
             .symbols
@@ -70,8 +70,11 @@ impl<'a> super::SemanticAnalyzer<'a> {
             .get_or_internalize(self.get_text(&arch.entity_name));
 
         // Find corresponding Entity scope (or fallback to Global)
-        let entity_scope = match self.symbols.lookup(self.current_scope, entity_sym) {
-            Some(DeclRef::Entity { scope_id, .. }) => scope_id,
+        let (entity_scope, entity_id) = match self.symbols.lookup(self.current_scope, entity_sym) {
+            Some(DeclRef::Entity {
+                scope_id,
+                entity_id,
+            }) => (scope_id, entity_id),
             _s => {
                 self.errors.push(SemanticError {
                     kind: SemanticErrorKind::UndefinedSymbol(
@@ -79,7 +82,17 @@ impl<'a> super::SemanticAnalyzer<'a> {
                     ),
                     span: arch.entity_name,
                 });
-                self.current_scope // Fallback to global so we don't crash
+                return;
+            }
+        };
+
+        match self.entity_architectures.get_mut(&entity_id) {
+            Some(x) => {
+                x.push(ArchitectureId(arch_id));
+            }
+            None => {
+                self.entity_architectures
+                    .insert(entity_id, vec![ArchitectureId(arch_id)]);
             }
         };
 
@@ -159,6 +172,10 @@ impl<'a> super::SemanticAnalyzer<'a> {
             }
             DeclRef::Type(type_id) => type_id,
             DeclRef::Entity { .. } => TypeId::ERROR,
+            DeclRef::Architecture {
+                ast_id,
+                entity_id: _entity_id,
+            } => self.resolve_type_by_name(self.ast.architectures[ast_id.0 as usize].name),
         }
     }
 

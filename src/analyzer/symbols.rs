@@ -1,6 +1,3 @@
-use crate::{
-    analyzer::{scope_tree::ScopeId, types::TypeId}, parser::ast::{DeclId, PortId},
-};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -25,5 +22,14 @@ impl SymbolInterner {
         self.vec.push(normalized.clone());
         self.map.insert(normalized, id);
         id
+    }
+    /// Use only when you are sure the symbol is already present
+    pub fn get(&self, name: &str) -> Option<SymbolId> {
+        let normalized = name.to_lowercase();
+        self.map.get(&normalized).copied()
+    }
+    
+    pub(crate) fn iter(&self) -> std::slice::Iter<'_, String>  {
+        self.vec.iter()
     }
 }

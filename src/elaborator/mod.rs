@@ -6,9 +6,13 @@
 //! driver sets per signal,
 //! and the process list.
 
+mod elaborator;
+mod environment;
+
+use crate::analyzer::SemanticAnalyzer;
 use crate::analyzer::symbols::SymbolId;
 use crate::analyzer::types::TypeId;
-use crate::parser::ast::{BinaryOp, PortMode};
+use crate::parser::ast::{AstArena, BinaryOp, PortMode};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -69,7 +73,7 @@ pub enum ElaboratedSequentialStmt {
         value_expr: ExprId,
     },
     If {
-        condition: ExprId, 
+        condition: ExprId,
         then_branch: Vec<ElaboratedSequentialStmt>,
         else_branch: Option<Vec<ElaboratedSequentialStmt>>,
     },
@@ -86,7 +90,7 @@ pub enum EvaluatedExpr {
     Literal(EvaluatedValue),
     SignalRead(SignalId), // Reads a physical wire
     BinaryOp {
-        lhs: ExprId, 
+        lhs: ExprId,
         op: BinaryOp,
         rhs: ExprId,
     },
@@ -134,3 +138,56 @@ impl ElaboratedArena {
         id
     }
 }
+
+/// The structure that manages the Data of the elaboration
+pub struct Elaborator<'a> {
+    pub ast: &'a AstArena<'a>,
+    pub sa: &'a SemanticAnalyzer<'a>,
+
+    /// The physical netlist being constructed
+    pub arena: ElaboratedArena,
+
+    /// Counter to generate unique hierarchical names if needed
+    instance_counter: u32,
+}
+
+use crate::parser::lexer::Span;
+use std::fmt;
+
+#[derive(Debug, Clone)]
+pub enum ElaboratorError {
+    /// The requested top-level entity was not found in the AST.
+    EntityNotFound(String),
+
+    /// No architecture was found for the given entity.
+    ArchitectureNotFound(String),
+
+    /// An error occurred while evaluating a constant or generic expression.
+    EvaluationFailed { reason: String, span: Span },
+
+    /// Tried to map a port or signal incorrectly (e.g., width mismatch).
+    BindingError { reason: String, span: Span },
+
+    /// For incremental development: when we hit a VHDL feature we haven't implemented yet.
+    NotYetImplemented { feature: String, span: Span },
+}
+
+impl fmt::Display for ElaboratorError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ElaboratorError::EntityNotFound(name) => write!(f, "Entity '{}' not found", name),
+            ElaboratorError::ArchitectureNotFound(name) => {
+                write!(f, "Architecture for entity '{}' not found", name)
+            }
+            ElaboratorError::EvaluationFailed { reason, .. } => {
+                write!(f, "Evaluation failed: {}", reason)
+            }
+            ElaboratorError::BindingError { reason, .. } => write!(f, "Binding error: {}", reason),
+            ElaboratorError::NotYetImplemented { feature, .. } => {
+                write!(f, "Not yet implemented: {}", feature)
+            }
+        }
+    }
+}
+
+impl std::error::Error for ElaboratorError {}

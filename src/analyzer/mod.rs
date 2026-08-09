@@ -1,9 +1,10 @@
+pub(crate) mod scope_tree;
 mod semantic;
-pub(crate) mod types;
-mod scope_tree;
 pub(super) mod symbol_table;
 pub(crate) mod symbols;
 mod type_inference;
+pub(crate) mod types;
+use std::collections::HashMap;
 use std::fmt::Debug;
 
 use crate::analyzer::scope_tree::{DeclRef, ScopeId, ScopeKind};
@@ -15,10 +16,17 @@ use crate::parser::lexer::Span;
 pub enum SemanticErrorKind {
     UndefinedSymbol(String),
     DuplicateDeclaration(String),
-    AssignmentTypeMismatch { expected: TypeId, found: TypeId },
-    InvalidAssignmentKind { expected_signal: bool },
+    AssignmentTypeMismatch {
+        expected: TypeId,
+        found: TypeId,
+    },
+    InvalidAssignmentKind {
+        expected_signal: bool,
+    },
     WriteToInputPort(String),
-    ConditionNotBoolean { found: TypeId },
+    ConditionNotBoolean {
+        found: TypeId,
+    },
     BinaryOperationTypeMismatch {
         lhs_type: TypeId,
         rhs_type: TypeId,
@@ -39,14 +47,11 @@ pub enum SemanticErrorKind {
     OthersRequiresContextualType,
 }
 
-
-
 #[derive(Debug)]
 pub struct SemanticError {
     pub kind: SemanticErrorKind,
     pub span: Span,
 }
-
 
 pub struct SemanticAnalyzer<'a> {
     pub ast: &'a AstArena<'a>,
@@ -60,7 +65,8 @@ pub struct SemanticAnalyzer<'a> {
     pub type_std_logic_vector: TypeId,
     pub type_integer: TypeId,
     pub type_boolean: TypeId,
-    pub type_real:TypeId,
+    pub type_real: TypeId,
+    pub entity_architectures: HashMap<EntityId, Vec<ArchitectureId>>,
     pub source: &'a str,
 }
 impl<'a> Debug for SemanticAnalyzer<'a> {
@@ -89,7 +95,6 @@ impl<'a> SemanticAnalyzer<'a> {
         });
         let _ = symbols.define(root_scope, std_logic_sym, DeclRef::Type(type_std_logic));
 
-        
         let integer_sym = symbols.interner.get_or_internalize("integer");
         let type_integer = types.alloc(TypeKind::Integer { name: integer_sym });
         let _ = symbols.define(root_scope, integer_sym, DeclRef::Type(type_integer));
@@ -97,17 +102,24 @@ impl<'a> SemanticAnalyzer<'a> {
         let real_sym = symbols.interner.get_or_internalize("real");
         let type_real = types.alloc(TypeKind::Real { name: real_sym });
         let _ = symbols.define(root_scope, real_sym, DeclRef::Type(type_real));
-        
+
         let boolean_sym = symbols.interner.get_or_internalize("boolean");
         let type_boolean = types.alloc(TypeKind::Enum {
             name: boolean_sym,
             literals: vec![],
         });
         let _ = symbols.define(root_scope, boolean_sym, DeclRef::Type(type_boolean));
-        
+
         let std_logic_vector_sym = symbols.interner.get_or_internalize("std_logic_vector");
-        let type_std_logic_vector = types.alloc(TypeKind::Array { name: std_logic_vector_sym, element_type: type_std_logic });
-        let _ = symbols.define(root_scope, std_logic_vector_sym, DeclRef::Type(type_std_logic_vector));
+        let type_std_logic_vector = types.alloc(TypeKind::Array {
+            name: std_logic_vector_sym,
+            element_type: type_std_logic,
+        });
+        let _ = symbols.define(
+            root_scope,
+            std_logic_vector_sym,
+            DeclRef::Type(type_std_logic_vector),
+        );
 
         Self {
             ast,
@@ -120,6 +132,7 @@ impl<'a> SemanticAnalyzer<'a> {
             type_integer,
             type_boolean,
             type_real,
+            entity_architectures: HashMap::new(),
             source,
         }
     }

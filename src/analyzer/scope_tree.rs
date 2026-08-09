@@ -1,10 +1,20 @@
 use std::collections::HashMap;
 
-use crate::{analyzer::{symbols::SymbolId, types::TypeId}, parser::ast::{DeclId, PortId}};
+use crate::{
+    analyzer::{symbols::SymbolId, types::TypeId},
+    parser::ast::{ArchitectureId, DeclId, EntityId, PortId},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeclRef {
-    Entity { ast_id: u32, scope_id: ScopeId },
+    Entity {
+        entity_id: EntityId,
+        scope_id: ScopeId,
+    },
+    Architecture {
+        ast_id: ArchitectureId,
+        entity_id: EntityId,
+    },  
     Port(PortId),
     Decl(DeclId), // Points to Signal, Variable, Constant in AstArena
     // TODO: components etc?

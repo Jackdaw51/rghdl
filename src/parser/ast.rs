@@ -6,7 +6,7 @@ use crate::parser::lexer::Span;
 pub struct ContextId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PortId(pub u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EntityId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArchitectureId(pub u32);
