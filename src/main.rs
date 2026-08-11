@@ -4,7 +4,7 @@
 use std::fmt::Write;
 use std::fs;
 
-use crate::{analyzer::SemanticAnalyzer,analyzer::symbol_table::SymbolTable, parser::Parser, printer::FormatCtx};
+use crate::{analyzer::SemanticAnalyzer,analyzer::SymbolTable, parser::Parser, printer::FormatCtx};
 
 mod analyzer;
 mod parser;

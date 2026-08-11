@@ -1,13 +1,10 @@
 use std::ops::Range;
 
 use crate::{
-    analyzer::{
-        SemanticAnalyzer, SemanticError, SemanticErrorKind,
-        types::{TypeId, TypeKind},
-    },
+    analyzer::{SemanticAnalyzer, SemanticError, SemanticErrorKind, TypeId, TypeKind},
     parser::{
+        Span,
         ast::{BinaryOp, Expr, ExprId, UnaryOp},
-        lexer::Span,
     },
 };
 

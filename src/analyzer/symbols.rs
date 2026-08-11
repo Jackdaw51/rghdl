@@ -1,13 +1,5 @@
-use std::collections::HashMap;
+use crate::analyzer::{SymbolId, SymbolInterner};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SymbolId(pub u32);
-
-#[derive(Default, Debug)]
-pub struct SymbolInterner {
-    map: HashMap<String, SymbolId>,
-    vec: Vec<String>,
-}
 
 impl SymbolInterner {
     /// Returns the symbol if it's present in the map, otherwise inserts it and returns its Id

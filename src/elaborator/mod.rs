@@ -9,9 +9,7 @@
 mod elaborator;
 mod environment;
 
-use crate::analyzer::SemanticAnalyzer;
-use crate::analyzer::symbols::SymbolId;
-use crate::analyzer::types::TypeId;
+use crate::analyzer::{SemanticAnalyzer, SymbolId, TypeId};
 use crate::parser::ast::{AstArena, BinaryOp, PortMode};
 use std::collections::HashMap;
 
@@ -151,8 +149,7 @@ pub struct Elaborator<'a> {
     instance_counter: u32,
 }
 
-use crate::parser::lexer::Span;
-use std::fmt;
+use crate::parser::Span;
 
 #[derive(Debug, Clone)]
 pub enum ElaboratorError {
@@ -163,15 +160,33 @@ pub enum ElaboratorError {
     ArchitectureNotFound(String),
 
     /// An error occurred while evaluating a constant or generic expression.
-    EvaluationFailed { reason: String, span: Span },
+    EvaluationFailed {
+        reason: String,
+        span: Span,
+    },
 
     /// Tried to map a port or signal incorrectly (e.g., width mismatch).
-    BindingError { reason: String, span: Span },
+    BindingError {
+        reason: String,
+        span: Span,
+    },
 
     /// For incremental development: when we hit a VHDL feature we haven't implemented yet.
-    NotYetImplemented { feature: String, span: Span },
+    NotYetImplemented {
+        feature: String,
+        span: Span,
+    },
     SignalNotFound(String),
     NotAnEntity,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Environment {
+    /// Tracks compile-time constants and evaluated generic values
+    pub constants: HashMap<SymbolId, EvaluatedValue>,
+
+    /// Maps a local AST symbol (like 'clk') to the physical wire in the ElaboratedArena
+    pub signals: HashMap<SymbolId, SignalId>,
 }
 
 // impl fmt::Display for ElaboratorError {

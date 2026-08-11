@@ -1,11 +1,11 @@
 use std::fmt::Display;
 
 use crate::parser::{
+    Span,
     ast::{
         AstArena, ConcurrentStmt, ContextItem, Decl, ElsifBranch, Entity, Expr, ExprId, Port,
         SequentialStmt, UnaryOp,
     },
-    lexer::Span,
 };
 
 pub struct FormatCtx<'a, T> {
@@ -286,7 +286,7 @@ impl<'a> Display for FormatCtx<'a, Decl<'a>> {
             } => {
                 write!(f, "variable {} : {}", name, decl_type)?;
                 if let Some(x) = default_val {
-                    write!(f, " := {}",self.child(self.get_expr(*x)))?;
+                    write!(f, " := {}", self.child(self.get_expr(*x)))?;
                 }
                 writeln!(f, ";")
             }

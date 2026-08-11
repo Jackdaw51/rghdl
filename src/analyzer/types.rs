@@ -1,9 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TypeId(pub u32);
-use std::collections::HashMap;
-
-use crate::analyzer::symbols::SymbolId;
-
+use crate::analyzer::{TypeArena, TypeId, TypeKind};
 
 impl TypeId {
     pub const ERROR: TypeId = TypeId(u32::MAX);
@@ -13,45 +8,6 @@ impl TypeId {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum TypeKind {
-    /// std_logic, boolean
-    Enum {
-        name: SymbolId,
-        literals: Vec<SymbolId>,
-    },
-    /// integer
-    Integer {
-        name: SymbolId,
-    },
-
-    Real {
-        name: SymbolId,
-    },
-    /// std_logic_vector
-    Array {
-        name: SymbolId,
-        element_type: TypeId,
-    },
-
-    Record {
-        name: SymbolId,
-        fields: HashMap<SymbolId, TypeId>,
-    },
-
-    Function {
-        name: SymbolId,
-        args: Vec<TypeId>,
-        return_type: TypeId,
-    },
-    /// Unresolved or error
-    Error,
-}
-
-#[derive(Default, Debug)]
-pub struct TypeArena {
-    types: Vec<TypeKind>,
-}
 
 impl TypeArena {
     pub fn alloc(&mut self, kind: TypeKind) -> TypeId {

@@ -1,5 +1,5 @@
 pub(crate) mod scope_tree;
-mod semantic;
+mod semantic_analyzer;
 pub(super) mod symbol_table;
 pub(crate) mod symbols;
 mod type_inference;
@@ -7,11 +7,16 @@ pub(crate) mod types;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use crate::analyzer::scope_tree::{DeclRef, ScopeId, ScopeKind};
-use crate::analyzer::symbol_table::SymbolTable;
-use crate::analyzer::types::{TypeArena, TypeId, TypeKind};
+use crate::parser::Span;
 use crate::parser::ast::*;
-use crate::parser::lexer::Span;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TypeId(pub u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ScopeId(pub u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SymbolId(pub u32);
+
 #[derive(Debug)]
 pub enum SemanticErrorKind {
     UndefinedSymbol(String),
@@ -47,7 +52,6 @@ pub enum SemanticErrorKind {
     CannotInferAggregateWithoutContext,
     OthersRequiresContextualType,
     AggregateSizeMismatch,
-
 }
 
 #[derive(Debug)]
@@ -71,8 +75,109 @@ pub struct SemanticAnalyzer<'a> {
     pub type_boolean: TypeId,
     pub type_real: TypeId,
     pub entity_architectures: HashMap<EntityId, Vec<ArchitectureId>>,
-    pub expr_types:Vec<TypeId>,
+    pub expr_types: Vec<TypeId>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeclRef {
+    Entity {
+        entity_id: EntityId,
+        scope_id: ScopeId,
+    },
+    Architecture {
+        ast_id: ArchitectureId,
+        entity_id: EntityId,
+        scope_id: ScopeId,
+    },
+    Port {
+        id: PortId,
+        type_id: TypeId,
+        mode: PortMode,
+    },
+    Signal {
+        id: DeclId,
+        type_id: TypeId,
+    },
+    Variable {
+        id: DeclId,
+        type_id: TypeId,
+    },
+    Constant {
+        id: DeclId,
+        type_id: TypeId,
+    },
+    Type(TypeId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopeKind {
+    Global,
+    Entity,
+    Architecture,
+    Process,
+    Block,
+}
+
+#[derive(Debug)]
+pub struct Scope {
+    pub kind: ScopeKind,
+    pub parent: Option<ScopeId>,
+    pub bindings: HashMap<SymbolId, DeclRef>,
+}
+
+#[derive(Default, Debug)]
+pub struct ScopeArena {
+    scopes: Vec<Scope>,
+}
+#[derive(Default, Debug)]
+pub struct SymbolInterner {
+    map: HashMap<String, SymbolId>,
+    vec: Vec<String>,
+}
+pub struct SymbolTable {
+    pub scopes: ScopeArena,
+    pub interner: SymbolInterner,
+}
+
+#[derive(Default, Debug)]
+pub struct TypeArena {
+    types: Vec<TypeKind>,
+}
+#[derive(Debug, Clone)]
+pub enum TypeKind {
+    /// std_logic, boolean
+    Enum {
+        name: SymbolId,
+        literals: Vec<SymbolId>,
+    },
+    /// integer
+    Integer {
+        name: SymbolId,
+    },
+
+    Real {
+        name: SymbolId,
+    },
+    /// std_logic_vector
+    Array {
+        name: SymbolId,
+        element_type: TypeId,
+    },
+
+    Record {
+        name: SymbolId,
+        fields: HashMap<SymbolId, TypeId>,
+    },
+
+    Function {
+        name: SymbolId,
+        args: Vec<TypeId>,
+        return_type: TypeId,
+    },
+    /// Unresolved or error
+    Error,
+}
+
 impl<'a> Debug for SemanticAnalyzer<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SemanticAnalyzer")
@@ -83,62 +188,5 @@ impl<'a> Debug for SemanticAnalyzer<'a> {
             .field("\ntype_std_logic", &self.type_std_logic)
             .field("\ntype_integer", &self.type_integer)
             .finish()
-    }
-}
-
-impl<'a> SemanticAnalyzer<'a> {
-    pub fn new(ast: &'a AstArena<'a>, mut symbols: SymbolTable, source: &'a str) -> Self {
-        let root_scope = symbols.scopes.alloc(ScopeKind::Global, None);
-        let mut types = TypeArena::default();
-
-        // Intern primitive VHDL types into Global Scope
-        let std_logic_sym = symbols.interner.get_or_internalize("std_logic");
-        let type_std_logic = types.alloc(TypeKind::Enum {
-            name: std_logic_sym,
-            literals: vec![],
-        });
-        let _ = symbols.define(root_scope, std_logic_sym, DeclRef::Type(type_std_logic));
-
-        let integer_sym = symbols.interner.get_or_internalize("integer");
-        let type_integer = types.alloc(TypeKind::Integer { name: integer_sym });
-        let _ = symbols.define(root_scope, integer_sym, DeclRef::Type(type_integer));
-
-        let real_sym = symbols.interner.get_or_internalize("real");
-        let type_real = types.alloc(TypeKind::Real { name: real_sym });
-        let _ = symbols.define(root_scope, real_sym, DeclRef::Type(type_real));
-
-        let boolean_sym = symbols.interner.get_or_internalize("boolean");
-        let type_boolean = types.alloc(TypeKind::Enum {
-            name: boolean_sym,
-            literals: vec![],
-        });
-        let _ = symbols.define(root_scope, boolean_sym, DeclRef::Type(type_boolean));
-
-        let std_logic_vector_sym = symbols.interner.get_or_internalize("std_logic_vector");
-        let type_std_logic_vector = types.alloc(TypeKind::Array {
-            name: std_logic_vector_sym,
-            element_type: type_std_logic,
-        });
-        let _ = symbols.define(
-            root_scope,
-            std_logic_vector_sym,
-            DeclRef::Type(type_std_logic_vector),
-        );
-
-        Self {
-            ast,
-            symbols,
-            types,
-            current_scope: root_scope,
-            errors: Vec::new(),
-            type_std_logic,
-            type_std_logic_vector,
-            type_integer,
-            type_boolean,
-            type_real,
-            entity_architectures: HashMap::new(),
-            source,
-            expr_types: Vec::new(),
-        }
     }
 }

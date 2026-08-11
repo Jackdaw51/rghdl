@@ -1,15 +1,11 @@
 use std::{collections::HashMap, fmt::format};
 
 use crate::{
-    analyzer::{
-        SemanticAnalyzer,
-        scope_tree::{DeclRef, ScopeId},
-        symbols::SymbolId,
-    },
+    analyzer::{DeclRef, ScopeId, SemanticAnalyzer, SymbolId},
     elaborator::{
         ElaboratedArena, ElaboratedConcurrentAssignment, ElaboratedPort, ElaboratedProcess,
-        ElaboratedSignal, Elaborator, ElaboratorError, EvaluatedExpr, EvaluatedValue, ExprId,
-        InstanceId, InstanceNode, PortBinding, ProcessId, SignalId, environment::Environment,
+        ElaboratedSignal, Elaborator, ElaboratorError, Environment, EvaluatedExpr, EvaluatedValue,
+        ExprId, InstanceId, InstanceNode, PortBinding, ProcessId, SignalId,
     },
     parser::ast::{ArchitectureId, AstArena, EntityId, Expr},
 };
@@ -396,7 +392,7 @@ impl<'a> Elaborator<'a> {
     pub fn eval_const_expr(
         &self,
         expr_id: crate::parser::ast::ExprId,
-        env:&Environment
+        env: &Environment,
     ) -> Result<EvaluatedValue, ElaboratorError> {
         todo!()
     }

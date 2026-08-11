@@ -1,7 +1,7 @@
 use crate::parser::{
     Parser,
     ast::{BinaryOp, Expr},
-    lexer::TokenKind,
+    TokenKind,
 };
 
 #[test]

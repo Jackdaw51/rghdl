@@ -1,15 +1,201 @@
-use crate::parser::{
-    ast::{AstArena, Port, PortId, PortMode},
-    lexer::{Lexer, Span, Token, TokenKind},
-};
+use std::{iter::Peekable, str::Chars};
+
+use crate::parser::ast::AstArena;
 
 mod architecture;
 pub(crate) mod ast;
 mod entity;
+mod expressions;
 pub(crate) mod lexer;
 mod library;
+mod parser;
 mod tests;
-mod expressions;
+
+#[derive(Clone, Debug, PartialEq, Copy)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: Span,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Copy)]
+pub enum TokenKind {
+    Identifier,
+    Number,       // 16#FF#, 3.14
+    StringLit,    // "Marco"
+    CharLit,      // '1', 'Z'
+    BitStringLit, // x"FF", b"1010"
+
+    KwEntity,
+    KwArchitecture,
+    KwPackage,
+    KwIs,
+    KwPort,
+    KwGeneric,
+    KwBegin,
+    KwEnd,
+    KwProcess,
+    KwIf,
+    KwThen,
+    KwElse,
+    KwElsif,
+    KwLibrary,
+    KwUse,
+    KwAll,
+    KwIn,
+    KwOut,
+    KwInOut,
+    KwBuffer,
+    KwOf,
+    KwSignal,
+    KwConstant,
+    KwComponent,
+    KwVariable,
+    KwNot,
+    KwOthers,
+    KwDownto,
+    KwTo,
+    KwAnd,
+    KwOr,
+    KwXor,
+    KwNand,
+    KwNor,
+    KwAbs,
+
+    // TODO * and /
+    OpAssign,            // :=
+    OpArrow,             // => (Port mapping)
+    OpSignalAssignOrLEq, // <= Signal assignment or less equal
+    OpEq,                // =
+    OpNeq,               // /=
+    OpLt,                // <
+    OpGt,                // >
+    OpGeq,               // >=
+    OpBox,               // <> (Unconstrained range)
+    OpPlus,              // +
+    OpMinus,             // -
+    OpStar,              // *
+    OpSlash,             // /
+    Colon,               // :
+    Semicolon,           // ;
+    Comma,               // ,
+    Dot,                 // .
+    Tick,                // '
+    LParen,              // (
+    RParen,              // )
+
+    Eof,
+    Error,
+}
+
+const KEYWORDS: &[(&str, TokenKind)] = &[
+    ("library", TokenKind::KwLibrary),
+    ("entity", TokenKind::KwEntity),
+    ("architecture", TokenKind::KwArchitecture),
+    ("package", TokenKind::KwPackage),
+    ("is", TokenKind::KwIs),
+    ("port", TokenKind::KwPort),
+    ("generic", TokenKind::KwGeneric),
+    ("begin", TokenKind::KwBegin),
+    ("end", TokenKind::KwEnd),
+    ("process", TokenKind::KwProcess),
+    ("if", TokenKind::KwIf),
+    ("then", TokenKind::KwThen),
+    ("else", TokenKind::KwElse),
+    ("elsif", TokenKind::KwElsif),
+    ("use", TokenKind::KwUse),
+    ("all", TokenKind::KwAll),
+    ("in", TokenKind::KwIn),
+    ("out", TokenKind::KwOut),
+    ("inout", TokenKind::KwInOut),
+    ("buffer", TokenKind::KwBuffer),
+    ("of", TokenKind::KwOf),
+    ("signal", TokenKind::KwSignal),
+    ("constant", TokenKind::KwConstant),
+    ("component", TokenKind::KwComponent),
+    ("variable", TokenKind::KwVariable),
+    ("not", TokenKind::KwNot),
+    ("others", TokenKind::KwOthers),
+    ("downto", TokenKind::KwDownto),
+    ("to", TokenKind::KwTo),
+    ("and", TokenKind::KwAnd),
+    ("not", TokenKind::KwNot),
+    ("or", TokenKind::KwOr),
+    ("xor", TokenKind::KwXor),
+    ("nand", TokenKind::KwNand),
+    ("nor", TokenKind::KwNor),
+    ("abs", TokenKind::KwAbs),
+];
+
+pub struct Lexer<'a> {
+    source: &'a str,
+    chars: Peekable<Chars<'a>>,
+    current_pos: usize,
+    current_line: usize,
+    cached_0: Option<Token>,
+    cached_1: Option<Token>,
+}
+
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pub struct ContextId(pub u32);
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pub struct PortId(pub u32);
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// pub struct EntityId(pub u32);
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pub struct ArchitectureId(pub u32);
+
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pub struct SeqStmtId(pub u32);
+
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pub struct ConcStmtId(pub u32);
+
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pub struct DeclId(pub u32);
+
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pub struct ExprId(pub u32);
+
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOp {
+    // Relational (Return BOOLEAN)
+    Eq,
+    Neq,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+    // Arithmetic (Return same as operands)
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Concat, //&
+    // Logical (Return same as operands)
+    And,
+    Or,
+    Xor,
+    Nand,
+    Nor,
+
+    Arrow, // TODO should make sure it disallows stuff like a=>b
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryOp {
+    Not,
+    Neg,
+    Plus,
+    Abs,
+}
+
+
 #[derive(Debug, Clone)]
 pub struct ParseError {
     pub kind: ParseErrorKind,
@@ -79,219 +265,4 @@ pub enum ParseErrorKind {
         found_span: Span,
     },
     UnexpectedEof,
-}
-
-impl<'a> Parser<'a> {
-    pub(crate) fn new(source: &'a str) -> Self {
-        Self {
-            lexer: Lexer::new(source),
-            arena: AstArena::new(),
-            source,
-            errors: vec![],
-        }
-    }
-
-    pub(crate) fn parse(&mut self) {
-        loop {
-            let next = self.lexer.peek();
-            println!("{:?}", next);
-            match next.kind {
-                TokenKind::KwEntity => {
-                    let res = self.parse_entity();
-                }
-                TokenKind::KwArchitecture => {
-                    let res = self.parse_architecture();
-                    match res {
-                        Ok(x) => {}
-                        Err(x) => {
-                            dbg!("Error in {}", x);
-                        }
-                    }
-                }
-                TokenKind::KwLibrary | TokenKind::KwUse => {
-                    let res = self.parse_lib();
-                }
-                TokenKind::Eof => break,
-                x => {
-                    panic!(
-                        "There's something wrong in the parsing, check around {} at line {}.",
-                        self.get_text(next.span),
-                        self.lexer.get_current_line()
-                    )
-                    // Maybe doesn't account for all parsing error, so panics reporting what is wrong
-                    // panics if semicolon on last port variable TODO
-                }
-            };
-        }
-    }
-
-    fn print_errors(&self) {
-        for error in &self.errors {
-            println!(
-                "{:?}, line {}",
-                error.kind,
-                self.get_line_from_span(error.span)
-            );
-        }
-    }
-
-    fn get_line_from_span(&self, span: Span) -> u32 {
-        let mut line = 1;
-        for (c, i) in self.source.as_bytes().iter().enumerate() {
-            if *i as char == '\n' {
-                line += 1;
-            }
-            if c == span.start {
-                break;
-            }
-        }
-
-        line
-    }
-
-    fn err<T>(&self, kind: ParseErrorKind, span: Span) -> ParseResult<T> {
-        Err(ParseError { kind, span })
-    }
-    fn advance(&mut self) -> Token {
-        self.lexer.next()
-    }
-    fn expect(&mut self, expected: TokenKind) -> ParseResult<Token> {
-        let token = self.advance();
-        if token.kind != expected {
-            if token.kind == TokenKind::Eof {
-                dbg!(token.clone());
-                return self.err(ParseErrorKind::UnexpectedEof, token.span);
-            }
-            return self.err(
-                ParseErrorKind::ExpectedToken {
-                    expected,
-                    found: token.kind,
-                },
-                token.span,
-            );
-        }
-        Ok(token)
-    }
-
-    
-    /// Parses `port ( ... );` and returns the slice of IDs allocated in the arena.
-    ///
-    /// If none is present it ```PortId == PortId```
-    fn parse_port_clause(&mut self) -> ParseResult<(PortId, PortId)> {
-        let ports_start = self.arena.ports.len() as u32;
-
-        if self.lexer.peek().kind == TokenKind::KwPort {
-            self.advance();
-            self.expect(TokenKind::LParen)?;
-
-            loop {
-                self.parse_port()?;
-
-                let next = self.lexer.peek();
-
-                if next.kind == TokenKind::Semicolon {
-                    self.advance();
-                } else if next.kind == TokenKind::RParen {
-                    break;
-                } else {
-                    exp_tks!(
-                        next.kind,
-                        next.span,
-                        TokenKind::Semicolon,
-                        TokenKind::RParen
-                    )
-                }
-            }
-            self.expect(TokenKind::RParen)?;
-            self.expect(TokenKind::Semicolon)?;
-        }
-
-        let ports_end = self.arena.ports.len() as u32;
-
-        Ok((PortId(ports_start), PortId(ports_end)))
-    }
-
-    //TODO: handle comma-separated names
-    fn parse_port(&mut self) -> ParseResult<PortId> {
-        let name_tok = self.expect(TokenKind::Identifier)?;
-        let name = self.get_text(name_tok.span);
-
-        self.expect(TokenKind::Colon)?;
-
-        let mode = match self.lexer.peek().kind {
-            TokenKind::KwIn => {
-                self.advance();
-                PortMode::In
-            }
-            TokenKind::KwOut => {
-                self.advance();
-                PortMode::Out
-            }
-            TokenKind::KwInOut => {
-                self.advance();
-                PortMode::InOut
-            }
-            TokenKind::KwBuffer => {
-                self.advance();
-                PortMode::Buffer
-            }
-            _ => PortMode::In,
-        };
-
-        let type_span = self.slice_until_depth_zero(&[TokenKind::Semicolon, TokenKind::RParen])?;
-        let port_type = self.get_text(type_span).trim();
-
-        let port = Port {
-            name,
-            name_span: name_tok.span,
-            mode,
-            port_type,
-        };
-
-        Ok(self.arena.alloc_port(port))
-    }
-
-    /// Fast forwards to ```;``` consuming it
-    fn fast_forward_to_semicolon(&mut self) -> ParseResult<Span> {
-        let span = self.slice_until_depth_zero(&[TokenKind::Semicolon])?;
-        self.expect(TokenKind::Semicolon)?; // consume the semicolon
-        Ok(span)
-    }
-
-    fn slice_until_depth_zero(&mut self, terminators: &[TokenKind]) -> ParseResult<Span> {
-        let start = self.lexer.peek().span.start;
-        let mut end = start;
-        let mut paren_depth = 0;
-
-        while self.not_eof() {
-            let tok = self.lexer.peek();
-            if paren_depth == 0 && terminators.contains(&tok.kind) {
-                break;
-            }
-
-            match tok.kind {
-                TokenKind::LParen => paren_depth += 1,
-                TokenKind::RParen if paren_depth > 0 => paren_depth -= 1,
-                _ => {}
-            }
-            end = self.advance().span.end;
-        }
-        Ok(Span { start, end })
-    }
-
-    /// `next != EOF`
-    fn not_eof(&mut self) -> bool {
-        self.lexer.peek().kind != TokenKind::Eof
-    }
-
-    fn get_text(&self, span: Span) -> &'a str {
-        &self.source[span.start..span.end]
-    }
-
-    /// Returns `true` if next token is `next_kind`, without consuming it
-    fn next_is(&mut self, next_kind: TokenKind) -> bool {
-        let k = self.lexer.peek().kind;
-        k == next_kind
-    }
-
 }

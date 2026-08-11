@@ -1,13 +1,8 @@
 use std::fmt::Debug;
 
 use crate::analyzer::{
-    scope_tree::{DeclRef, ScopeArena, ScopeId}, symbols::{SymbolId, SymbolInterner},
+    DeclRef, ScopeArena, ScopeId, SymbolId, SymbolInterner, SymbolTable,
 };
-
-pub struct SymbolTable {
-    pub scopes: ScopeArena,
-    pub interner: SymbolInterner,
-}
 
 impl Debug for SymbolTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -1,143 +1,15 @@
-use std::{iter::Peekable, str::Chars};
+use crate::parser::{KEYWORDS, Lexer, Span, Token, TokenKind};
 
-#[derive(Clone, Debug, PartialEq, Copy)]
-pub struct Token {
-    pub kind: TokenKind,
-    pub span: Span,
-}
 impl Token {
     fn new(kind: TokenKind, span: Span) -> Self {
         Self { kind, span }
     }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Span {
-    pub start: usize,
-    pub end: usize,
 }
 
 impl Span {
     fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Copy)]
-pub enum TokenKind {
-    Identifier,
-    Number,       // 16#FF#, 3.14
-    StringLit,    // "Marco"
-    CharLit,      // '1', 'Z'
-    BitStringLit, // x"FF", b"1010"
-
-    KwEntity,
-    KwArchitecture,
-    KwPackage,
-    KwIs,
-    KwPort,
-    KwGeneric,
-    KwBegin,
-    KwEnd,
-    KwProcess,
-    KwIf,
-    KwThen,
-    KwElse,
-    KwElsif,
-    KwLibrary,
-    KwUse,
-    KwAll,
-    KwIn,
-    KwOut,
-    KwInOut,
-    KwBuffer,
-    KwOf,
-    KwSignal,
-    KwConstant,
-    KwComponent,
-    KwVariable,
-    KwNot,
-    KwOthers,
-    KwDownto,
-    KwTo,
-    KwAnd,
-    KwOr,
-    KwXor,
-    KwNand,
-    KwNor,
-    KwAbs,
-
-    // TODO * and /
-    OpAssign,            // :=
-    OpArrow,             // => (Port mapping)
-    OpSignalAssignOrLEq, // <= Signal assignment or less equal
-    OpEq,                // =
-    OpNeq,               // /=
-    OpLt,                // <
-    OpGt,                // >
-    OpGeq,               // >=
-    OpBox,               // <> (Unconstrained range)
-    OpPlus,              // +
-    OpMinus,             // -
-    OpStar,              // *
-    OpSlash,             // /
-    Colon,               // :
-    Semicolon,           // ;
-    Comma,               // ,
-    Dot,                 // .
-    Tick,                // '
-    LParen,              // (
-    RParen,              // )
-
-    Eof,
-    Error,
-}
-
-const KEYWORDS: &[(&str, TokenKind)] = &[
-    ("library", TokenKind::KwLibrary),
-    ("entity", TokenKind::KwEntity),
-    ("architecture", TokenKind::KwArchitecture),
-    ("package", TokenKind::KwPackage),
-    ("is", TokenKind::KwIs),
-    ("port", TokenKind::KwPort),
-    ("generic", TokenKind::KwGeneric),
-    ("begin", TokenKind::KwBegin),
-    ("end", TokenKind::KwEnd),
-    ("process", TokenKind::KwProcess),
-    ("if", TokenKind::KwIf),
-    ("then", TokenKind::KwThen),
-    ("else", TokenKind::KwElse),
-    ("elsif", TokenKind::KwElsif),
-    ("use", TokenKind::KwUse),
-    ("all", TokenKind::KwAll),
-    ("in", TokenKind::KwIn),
-    ("out", TokenKind::KwOut),
-    ("inout", TokenKind::KwInOut),
-    ("buffer", TokenKind::KwBuffer),
-    ("of", TokenKind::KwOf),
-    ("signal", TokenKind::KwSignal),
-    ("constant", TokenKind::KwConstant),
-    ("component", TokenKind::KwComponent),
-    ("variable", TokenKind::KwVariable),
-    ("not", TokenKind::KwNot),
-    ("others", TokenKind::KwOthers),
-    ("downto", TokenKind::KwDownto),
-    ("to", TokenKind::KwTo),
-    ("and", TokenKind::KwAnd),
-    ("not", TokenKind::KwNot),
-    ("or", TokenKind::KwOr),
-    ("xor", TokenKind::KwXor),
-    ("nand", TokenKind::KwNand),
-    ("nor", TokenKind::KwNor),
-    ("abs",TokenKind::KwAbs)
-];
-
-pub struct Lexer<'a> {
-    source: &'a str,
-    chars: Peekable<Chars<'a>>,
-    current_pos: usize,
-    current_line: usize,
-    cached_0: Option<Token>,
-    cached_1: Option<Token>,
 }
 
 impl<'a> Lexer<'a> {
@@ -151,6 +23,7 @@ impl<'a> Lexer<'a> {
             cached_1: None,
         }
     }
+
     pub fn get_current_line(&self) -> usize {
         self.current_line
     }
@@ -181,6 +54,7 @@ impl<'a> Lexer<'a> {
             }
         }
     }
+    
     /// Consumes the next character and updates the byte offset
     fn advance(&mut self) -> Option<char> {
         if let Some(ch) = self.chars.next() {

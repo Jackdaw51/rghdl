@@ -1,7 +1,6 @@
 use crate::parser::{
-    ParseError, ParseResult, Parser,
+    ParseError, ParseResult, Parser, Span, TokenKind,
     ast::{BinaryOp, Expr, ExprId, UnaryOp},
-    lexer::{Span, TokenKind},
 };
 
 impl<'a> Parser<'a> {

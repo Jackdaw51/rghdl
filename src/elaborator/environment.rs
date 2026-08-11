@@ -1,14 +1,4 @@
-use std::collections::HashMap;
-use crate::{analyzer::{scope_tree::DeclRef, symbols::SymbolId}, elaborator::{EvaluatedValue, SignalId}};
-
-#[derive(Debug, Clone, Default)]
-pub struct Environment {
-    /// Tracks compile-time constants and evaluated generic values
-    pub constants: HashMap<SymbolId, EvaluatedValue>,
-    
-    /// Maps a local AST symbol (like 'clk') to the physical wire in the ElaboratedArena
-    pub signals: HashMap<SymbolId, SignalId>,
-}
+use crate::{analyzer::SymbolId, elaborator::{Environment, EvaluatedValue, SignalId}};
 
 impl Environment {
     pub fn new() -> Self {

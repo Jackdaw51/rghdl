@@ -1,6 +1,6 @@
 use std::{fmt::Display, ops::Range};
 
-use crate::parser::lexer::Span;
+use crate::parser::{Span, TokenKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContextId(pub u32);
@@ -47,76 +47,12 @@ pub enum BinaryOp {
 
     Arrow, // TODO should make sure it disallows stuff like a=>b
 }
-impl Display for BinaryOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BinaryOp::Eq => write!(f, "="),
-            BinaryOp::Neq => write!(f, "/="),
-            BinaryOp::Lt => write!(f, "<"),
-            BinaryOp::Lte => write!(f, "<="),
-            BinaryOp::Gt => write!(f, ">"),
-            BinaryOp::Gte => write!(f, ">="),
-            BinaryOp::Add => write!(f, "+"),
-            BinaryOp::Sub => write!(f, "-"),
-            BinaryOp::Mul => write!(f, "*"),
-            BinaryOp::Div => write!(f, "/"),
-            BinaryOp::And => write!(f, "and"),
-            BinaryOp::Or => write!(f, "or"),
-            BinaryOp::Xor => write!(f, "xor"),
-            BinaryOp::Nand => write!(f, "nand"),
-            BinaryOp::Nor => write!(f, "nor"),
-            BinaryOp::Arrow => write!(f, "=>"),
-            BinaryOp::Concat => write!(f, "&"),
-        }
-    }
-}
-
-impl BinaryOp {
-    /// Returns (left_binding_power, right_binding_power)
-    pub fn binding_power(&self) -> (u8, u8) {
-        match self {
-            // Logical Operators (Lowest Precedence)
-            BinaryOp::And | BinaryOp::Or | BinaryOp::Xor | BinaryOp::Nand | BinaryOp::Nor => {
-                (10, 11)
-            }
-
-            BinaryOp::Arrow => (10, 11),
-
-            // Relational Operators
-            BinaryOp::Eq
-            | BinaryOp::Neq
-            | BinaryOp::Lt
-            | BinaryOp::Lte
-            | BinaryOp::Gt
-            | BinaryOp::Gte => (20, 21),
-
-            // Adding Operators
-            BinaryOp::Add | BinaryOp::Sub => (30, 31),
-
-            // Multiplying Operators
-            BinaryOp::Mul | BinaryOp::Div => (40, 41),
-
-            BinaryOp::Concat => (10, 11), //TODO reviex
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
     Not,
     Neg,
     Plus,
     Abs,
-}
-impl Display for UnaryOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UnaryOp::Not => write!(f, "not"),
-            UnaryOp::Neg => write!(f, "-"),
-            UnaryOp::Plus => write!(f, "+"),
-            UnaryOp::Abs => write!(f, "abs"),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -161,7 +97,7 @@ pub enum Expr<'a> {
     },
     Slice {
         target: ExprId,
-        direction: super::lexer::TokenKind,
+        direction: TokenKind,
         left: ExprId,
         right: ExprId,
         span: Span,
@@ -209,11 +145,6 @@ pub struct Port<'a> {
     pub name_span: Span,
     pub mode: PortMode,
     pub port_type: &'a str,
-}
-impl<'a> PartialEq for Port<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.mode == other.mode && self.port_type == other.port_type
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -345,6 +276,9 @@ pub struct AstArena<'a> {
     pub exprs: Vec<Expr<'a>>,
     pub expr_lists: Vec<ExprId>,
 }
+
+
+
 impl<'a> AstArena<'a> {
     pub fn new() -> Self {
         Self::default()
@@ -432,5 +366,73 @@ impl<'a> std::fmt::Display for AstArena<'a> {
             self.decls,
             self.concurrent_stmts,
         )
+    }
+}
+impl Display for BinaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BinaryOp::Eq => write!(f, "="),
+            BinaryOp::Neq => write!(f, "/="),
+            BinaryOp::Lt => write!(f, "<"),
+            BinaryOp::Lte => write!(f, "<="),
+            BinaryOp::Gt => write!(f, ">"),
+            BinaryOp::Gte => write!(f, ">="),
+            BinaryOp::Add => write!(f, "+"),
+            BinaryOp::Sub => write!(f, "-"),
+            BinaryOp::Mul => write!(f, "*"),
+            BinaryOp::Div => write!(f, "/"),
+            BinaryOp::And => write!(f, "and"),
+            BinaryOp::Or => write!(f, "or"),
+            BinaryOp::Xor => write!(f, "xor"),
+            BinaryOp::Nand => write!(f, "nand"),
+            BinaryOp::Nor => write!(f, "nor"),
+            BinaryOp::Arrow => write!(f, "=>"),
+            BinaryOp::Concat => write!(f, "&"),
+        }
+    }
+}
+
+impl BinaryOp {
+    /// Returns (left_binding_power, right_binding_power)
+    pub fn binding_power(&self) -> (u8, u8) {
+        match self {
+            // Logical Operators (Lowest Precedence)
+            BinaryOp::And | BinaryOp::Or | BinaryOp::Xor | BinaryOp::Nand | BinaryOp::Nor => {
+                (10, 11)
+            }
+
+            BinaryOp::Arrow => (10, 11),
+
+            // Relational Operators
+            BinaryOp::Eq
+            | BinaryOp::Neq
+            | BinaryOp::Lt
+            | BinaryOp::Lte
+            | BinaryOp::Gt
+            | BinaryOp::Gte => (20, 21),
+
+            // Adding Operators
+            BinaryOp::Add | BinaryOp::Sub => (30, 31),
+
+            // Multiplying Operators
+            BinaryOp::Mul | BinaryOp::Div => (40, 41),
+
+            BinaryOp::Concat => (10, 11), //TODO reviex
+        }
+    }
+}
+impl Display for UnaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UnaryOp::Not => write!(f, "not"),
+            UnaryOp::Neg => write!(f, "-"),
+            UnaryOp::Plus => write!(f, "+"),
+            UnaryOp::Abs => write!(f, "abs"),
+        }
+    }
+}
+impl<'a> PartialEq for Port<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.mode == other.mode && self.port_type == other.port_type
     }
 }

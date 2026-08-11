@@ -1,6 +1,6 @@
 use crate::{
     parser::ast::{Entity, EntityId},
-    parser::lexer::TokenKind,
+    parser::TokenKind,
     parser::{ParseResult, Parser},
 };
 

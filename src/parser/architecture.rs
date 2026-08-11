@@ -2,12 +2,13 @@ use std::ops::Range;
 
 use super::Parser;
 use crate::exp_tks;
+use crate::parser::{ParseResult, TokenKind};
 use crate::parser::ast::{ConcurrentStmt, ElsifBranch, SequentialStmt};
 
 use crate::{
+    parser::ParseErrorKind,
+    parser::Span,
     parser::ast::{Architecture, ArchitectureId, Decl, DeclId},
-    parser::lexer::{Span, TokenKind},
-    parser::{ParseErrorKind, ParseResult},
 };
 
 impl<'a> Parser<'a> {
@@ -152,7 +153,7 @@ impl<'a> Parser<'a> {
 
         let mut label: Option<Span> = None;
         if self.next_is(TokenKind::Identifier) && self.next_is(TokenKind::Colon) {
-            let label_tok = self.advance(); 
+            let label_tok = self.advance();
             self.advance();
             label = Some(label_tok.span);
 
@@ -412,7 +413,7 @@ impl<'a> Parser<'a> {
         }
     }
     fn parse_if_statement(&mut self) -> ParseResult<SequentialStmt<'a>> {
-        self.advance(); 
+        self.advance();
 
         let condition = self.parse_expression()?;
         self.expect(TokenKind::KwThen)?;
