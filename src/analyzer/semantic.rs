@@ -48,10 +48,17 @@ impl<'a> super::SemanticAnalyzer<'a> {
             let port_sym = self.symbols.interner.get_or_internalize(port.name);
             let absolute_port_id = PortId(entity.ports_start.0 + idx as u32);
 
-            if let Err(_s) =
-                self.symbols
-                    .define(entity_scope, port_sym, DeclRef::Port(absolute_port_id))
-            {
+            let type_id = self.resolve_type_by_name(port.port_type);
+
+            if let Err(_s) = self.symbols.define(
+                entity_scope,
+                port_sym,
+                DeclRef::Port {
+                    id: absolute_port_id,
+                    type_id,
+                    mode: port.mode,
+                },
+            ) {
                 self.errors.push(SemanticError {
                     kind: SemanticErrorKind::DuplicateDeclaration(port.name.to_string()),
                     span: port.name_span,
@@ -86,15 +93,10 @@ impl<'a> super::SemanticAnalyzer<'a> {
             }
         };
 
-        match self.entity_architectures.get_mut(&entity_id) {
-            Some(x) => {
-                x.push(ArchitectureId(arch_id));
-            }
-            None => {
-                self.entity_architectures
-                    .insert(entity_id, vec![ArchitectureId(arch_id)]);
-            }
-        };
+        self.entity_architectures
+            .entry(entity_id)
+            .or_default()
+            .push(ArchitectureId(arch_id));
 
         let arch_scope = self
             .symbols
@@ -105,21 +107,44 @@ impl<'a> super::SemanticAnalyzer<'a> {
         self.current_scope = arch_scope;
 
         // Populate Declarations (Signals, Variables, Constants)
+        // TODO enforce assignment rules over declarations
         let decl_slice = &self.ast.decls[arch.decls_start.0 as usize..arch.decls_end.0 as usize];
         for (idx, decl) in decl_slice.iter().enumerate() {
             let absolute_decl_id = DeclId(arch.decls_start.0 + idx as u32);
 
-            let name = match decl {
-                Decl::Signal { name, .. }
-                | Decl::Variable { name, .. }
-                | Decl::Constant { name, .. } => name,
+            let (name, decl_ref) = match decl {
+                Decl::Signal {
+                    name, decl_type, ..
+                } => (
+                    name,
+                    DeclRef::Signal {
+                        id: absolute_decl_id,
+                        type_id: self.resolve_type_by_name(decl_type),
+                    },
+                ),
+                Decl::Variable {
+                    name, decl_type, ..
+                } => (
+                    name,
+                    DeclRef::Variable {
+                        id: absolute_decl_id,
+                        type_id: self.resolve_type_by_name(decl_type),
+                    },
+                ),
+                Decl::Constant {
+                    name, decl_type, ..
+                } => (
+                    name,
+                    DeclRef::Constant {
+                        id: absolute_decl_id,
+                        type_id: self.resolve_type_by_name(decl_type),
+                    },
+                ),
                 _ => continue,
             };
 
             let sym = self.symbols.interner.get_or_internalize(name);
-            let a = self
-                .symbols
-                .define(arch_scope, sym, DeclRef::Decl(absolute_decl_id));
+            let a = self.symbols.define(arch_scope, sym, decl_ref);
             if a.is_err() {
                 self.errors.push(SemanticError {
                     kind: DuplicateDeclaration(name.to_string()),
@@ -140,7 +165,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
     }
 
     /// Helper to dig through arrays/fields to find the root Identifier being assigned to
-    fn get_base_declaration(&mut self, expr_id: ExprId) -> Option<DeclRef> {
+    pub(crate) fn get_base_declaration(&mut self, expr_id: ExprId) -> Option<DeclRef> {
         match self.ast.exprs[expr_id.0 as usize].clone() {
             Expr::Identifier { name, .. } => {
                 let sym = self.symbols.interner.get_or_internalize(&name);
@@ -155,27 +180,14 @@ impl<'a> super::SemanticAnalyzer<'a> {
     }
 
     /// Helper to fetch the TypeId assigned to a declaration
-    pub(super) fn get_decl_type(&mut self, decl_ref: DeclRef) -> TypeId {
+    pub fn get_decl_type(&self, decl_ref: DeclRef) -> TypeId {
         match decl_ref {
-            DeclRef::Port(port_id) => {
-                let port = &self.ast.ports[port_id.0 as usize];
-                self.resolve_type_by_name(port.port_type)
-            }
-            DeclRef::Decl(decl_id) => {
-                let decl = &self.ast.decls[decl_id.0 as usize];
-                match decl {
-                    Decl::Signal { decl_type, .. }
-                    | Decl::Variable { decl_type, .. }
-                    | Decl::Constant { decl_type, .. } => self.resolve_type_by_name(decl_type),
-                    _ => TypeId::ERROR,
-                }
-            }
+            DeclRef::Port { type_id, .. } => type_id,
+            DeclRef::Signal { type_id, .. } => type_id,
+            DeclRef::Variable { type_id, .. } => type_id,
+            DeclRef::Constant { type_id, .. } => type_id,
             DeclRef::Type(type_id) => type_id,
-            DeclRef::Entity { .. } => TypeId::ERROR,
-            DeclRef::Architecture {
-                ast_id,
-                entity_id: _entity_id,
-            } => self.resolve_type_by_name(self.ast.architectures[ast_id.0 as usize].name),
+            DeclRef::Entity { .. } | DeclRef::Architecture { .. } => TypeId::ERROR,
         }
     }
 
@@ -313,39 +325,42 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
         // Signal vs Variable invariants
         if let Some(base_sym_decl) = self.get_base_declaration(target_expr) {
+            let target_span = self.ast.exprs[target_expr.0 as usize].span();
+
             match (base_sym_decl, is_signal_assign) {
-                (DeclRef::Decl(id), true) => {
-                    if let Decl::Variable { .. } = &self.ast.decls[id.0 as usize] {
+                (DeclRef::Variable { .. }, true) => {
+                    self.errors.push(SemanticError {
+                        kind: SemanticErrorKind::InvalidAssignmentKind {
+                            expected_signal: false,
+                        },
+                        span: target_span,
+                    });
+                }
+                (DeclRef::Signal { .. }, false) => {
+                    self.errors.push(SemanticError {
+                        kind: SemanticErrorKind::InvalidAssignmentKind {
+                            expected_signal: true,
+                        },
+                        span: target_span,
+                    });
+                }
+                (DeclRef::Port { mode, .. }, true) => {
+                    if mode == PortMode::In {
                         self.errors.push(SemanticError {
-                            kind: SemanticErrorKind::InvalidAssignmentKind {
-                                expected_signal: false,
-                            },
-                            span: self.ast.exprs[target_expr.0 as usize].span(),
+                            kind: SemanticErrorKind::WriteToInputPort("<port>".to_string()), // TODO maybe something better
+                            span: target_span,
                         });
                     }
                 }
-                (DeclRef::Decl(id), false) => {
-                    if let Decl::Signal { .. } = &self.ast.decls[id.0 as usize] {
-                        self.errors.push(SemanticError {
-                            kind: SemanticErrorKind::InvalidAssignmentKind {
-                                expected_signal: true,
-                            },
-                            span: self.ast.exprs[target_expr.0 as usize].span(),
-                        });
-                    }
+                (DeclRef::Constant { .. }, _) => {
+                    self.errors.push(SemanticError {
+                        kind: SemanticErrorKind::InvalidAssignmentKind {
+                            expected_signal: is_signal_assign,
+                        },
+                        span: target_span,
+                    });
                 }
-                (DeclRef::Port(port_id), true) => {
-                    let port = &self.ast.ports[port_id.0 as usize];
-                    if port.mode == PortMode::In {
-                        self.errors.push(SemanticError {
-                            kind: SemanticErrorKind::WriteToInputPort(port.name.to_string()),
-                            span: self.ast.exprs[target_expr.0 as usize].span(),
-                        });
-                    }
-                }
-                _ => {
-                    unreachable!()
-                }
+                _ => {} // Valid assignments
             }
         }
     }

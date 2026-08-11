@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use super::Parser;
 use crate::exp_tks;
-use crate::parser::ast::{ConcStmtId, ConcurrentStmt, ElsifBranch, SequentialStmt};
+use crate::parser::ast::{ConcurrentStmt, ElsifBranch, SequentialStmt};
 
 use crate::{
     parser::ast::{Architecture, ArchitectureId, Decl, DeclId},
@@ -242,9 +242,7 @@ impl<'a> Parser<'a> {
         let mut default_val = None;
         if self.next_is(TokenKind::OpAssign) {
             self.advance();
-
-            let expr_span = self.slice_until_depth_zero(&[TokenKind::Semicolon])?;
-            default_val = Some(self.get_text(expr_span).trim());
+            default_val = Some(self.parse_expression()?);
         }
 
         self.expect(TokenKind::Semicolon)?;

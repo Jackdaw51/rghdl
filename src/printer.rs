@@ -264,7 +264,7 @@ impl<'a> Display for FormatCtx<'a, Decl<'a>> {
             } => {
                 write!(f, "signal {} : {}", name, decl_type)?;
                 if let Some(x) = default_val {
-                    write!(f, " := {}", x)?;
+                    write!(f, " := {}", self.child(self.get_expr(*x)))?;
                 }
                 writeln!(f, ";")
             }
@@ -275,7 +275,7 @@ impl<'a> Display for FormatCtx<'a, Decl<'a>> {
             } => {
                 write!(f, "constant {} : {}", name, decl_type)?;
                 if let Some(x) = default_val {
-                    write!(f, " := {}", x)?;
+                    write!(f, " := {}", self.child(self.get_expr(*x)))?;
                 }
                 writeln!(f, ";")
             }
@@ -286,7 +286,7 @@ impl<'a> Display for FormatCtx<'a, Decl<'a>> {
             } => {
                 write!(f, "variable {} : {}", name, decl_type)?;
                 if let Some(x) = default_val {
-                    write!(f, " := {x}")?;
+                    write!(f, " := {}",self.child(self.get_expr(*x)))?;
                 }
                 writeln!(f, ";")
             }

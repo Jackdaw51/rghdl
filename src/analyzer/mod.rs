@@ -41,10 +41,13 @@ pub enum SemanticErrorKind {
     UnknownRecordField(String),
     InvalidLiteral(String),
     InvalidUnaryOperand,
+    InvalidConcatenation,
     NotARecord,
     CannotIndexOrCallNonArray,
     CannotInferAggregateWithoutContext,
     OthersRequiresContextualType,
+    AggregateSizeMismatch,
+
 }
 
 #[derive(Debug)]
@@ -55,6 +58,7 @@ pub struct SemanticError {
 
 pub struct SemanticAnalyzer<'a> {
     pub ast: &'a AstArena<'a>,
+    pub source: &'a str,
     pub symbols: SymbolTable,
     pub types: TypeArena, // holds a vector of types that are referenced by TypeId
 
@@ -67,7 +71,7 @@ pub struct SemanticAnalyzer<'a> {
     pub type_boolean: TypeId,
     pub type_real: TypeId,
     pub entity_architectures: HashMap<EntityId, Vec<ArchitectureId>>,
-    pub source: &'a str,
+    pub expr_types:Vec<TypeId>,
 }
 impl<'a> Debug for SemanticAnalyzer<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -134,6 +138,7 @@ impl<'a> SemanticAnalyzer<'a> {
             type_real,
             entity_architectures: HashMap::new(),
             source,
+            expr_types: Vec::new(),
         }
     }
 }

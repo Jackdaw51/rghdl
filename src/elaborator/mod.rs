@@ -170,24 +170,27 @@ pub enum ElaboratorError {
 
     /// For incremental development: when we hit a VHDL feature we haven't implemented yet.
     NotYetImplemented { feature: String, span: Span },
+    SignalNotFound(String),
+    NotAnEntity,
 }
 
-impl fmt::Display for ElaboratorError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ElaboratorError::EntityNotFound(name) => write!(f, "Entity '{}' not found", name),
-            ElaboratorError::ArchitectureNotFound(name) => {
-                write!(f, "Architecture for entity '{}' not found", name)
-            }
-            ElaboratorError::EvaluationFailed { reason, .. } => {
-                write!(f, "Evaluation failed: {}", reason)
-            }
-            ElaboratorError::BindingError { reason, .. } => write!(f, "Binding error: {}", reason),
-            ElaboratorError::NotYetImplemented { feature, .. } => {
-                write!(f, "Not yet implemented: {}", feature)
-            }
-        }
-    }
-}
+// impl fmt::Display for ElaboratorError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         match self {
+//             ElaboratorError::EntityNotFound(name) => write!(f, "Entity '{}' not found", name),
+//             ElaboratorError::ArchitectureNotFound(name) => {
+//                 write!(f, "Architecture for entity '{}' not found", name)
+//             }
+//             ElaboratorError::EvaluationFailed { reason, .. } => {
+//                 write!(f, "Evaluation failed: {}", reason)
+//             }
+//             ElaboratorError::BindingError { reason, .. } => write!(f, "Binding error: {}", reason),
+//             ElaboratorError::NotYetImplemented { feature, .. } => {
+//                 write!(f, "Not yet implemented: {}", feature)
+//             }
+//             ElaboratorError::SignalNotFound(reason) => todo!(),
+//         }
+//     }
+// }
 
-impl std::error::Error for ElaboratorError {}
+// impl std::error::Error for ElaboratorError {}

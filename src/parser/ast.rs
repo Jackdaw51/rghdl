@@ -93,7 +93,7 @@ impl BinaryOp {
             // Adding Operators
             BinaryOp::Add | BinaryOp::Sub => (30, 31),
 
-            // Multiplying Operators 
+            // Multiplying Operators
             BinaryOp::Mul | BinaryOp::Div => (40, 41),
 
             BinaryOp::Concat => (10, 11), //TODO reviex
@@ -195,7 +195,7 @@ pub enum ContextItem<'a> {
     Use { path: &'a str },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum PortMode {
     In,
     Out,
@@ -219,7 +219,7 @@ impl<'a> PartialEq for Port<'a> {
 #[derive(Debug, Clone)]
 pub struct Entity<'a> {
     pub name: &'a str,
-    pub name_span:Span,
+    pub name_span: Span,
     pub ports_start: PortId,
     pub ports_end: PortId,
 }
@@ -229,17 +229,17 @@ pub enum Decl<'a> {
     Signal {
         name: &'a str,
         decl_type: &'a str,
-        default_val: Option<&'a str>,
+        default_val: Option<ExprId>,
     },
     Constant {
         name: &'a str,
         decl_type: &'a str,
-        default_val: Option<&'a str>,
+        default_val: Option<ExprId>,
     },
     Variable {
         name: &'a str,
         decl_type: &'a str,
-        default_val: Option<&'a str>,
+        default_val: Option<ExprId>,
     },
     Component {
         name: &'a str,
@@ -392,6 +392,31 @@ impl<'a> AstArena<'a> {
         let id = self.exprs.len() as u32;
         self.exprs.push(expr);
         ExprId(id)
+    }
+    pub fn ports(&self, entity: &Entity) -> &[Port<'a>] {
+        &self.ports[entity.ports_start.0 as usize..entity.ports_end.0 as usize]
+    }
+
+    pub(crate) fn declarations(&self, arch: &Architecture<'a>) -> &[Decl<'a>] {
+        &self.decls[arch.decls_start.0 as usize..arch.decls_end.0 as usize]
+    }
+
+    pub(crate) fn seq_statements(&'a self, arch: &Architecture<'a>) -> impl Iterator<Item = &SequentialStmt> {
+        let seq_ids = &self.seq_stmt_lists[arch.stmts.start as usize..arch.stmts.end as usize];
+
+        seq_ids
+            .iter()
+            .map(|id| &self.sequential_stmts[id.0 as usize])
+    }
+    pub(crate) fn conc_statements(&self, arch: &Architecture<'a>) -> impl Iterator<Item = &ConcurrentStmt> {
+        let conc_ids = &self.conc_stmt_lists[arch.stmts.start as usize..arch.stmts.end as usize];
+        conc_ids
+            .iter()
+            .map(|id| &self.concurrent_stmts[id.0 as usize])
+    }
+    
+    pub(crate) fn expr(&self, target: ExprId) -> &Expr<'a>  {
+        &self.exprs[target.0 as usize]
     }
 }
 

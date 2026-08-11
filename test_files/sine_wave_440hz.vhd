@@ -46,7 +46,6 @@ architecture Behavioral of sine_wave_440hz is
     -- Signal to hold the top 8 bits of the accumulator (our ROM address)
     signal rom_addr : integer range 0 to 255;
 
-    constant rom_addr : std_logic;
 
     -- component square_wave_440hz
     --     port (
