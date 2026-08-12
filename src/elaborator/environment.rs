@@ -14,7 +14,7 @@ impl Environment {
         self.signals.insert(port_sym, sig_id)
     }
     
-    pub(crate) fn insert_value(&mut self, sym: SymbolId, clone: EvaluatedValue) -> Option<EvaluatedValue> {
+    pub(crate) fn insert_constant(&mut self, sym: SymbolId, clone: EvaluatedValue) -> Option<EvaluatedValue> {
         self.constants.insert(sym, clone)
     }
     
@@ -22,7 +22,7 @@ impl Environment {
         self.signals.get(&target_symbol).copied()
     }
     
-    pub(crate) fn lookup_value(&self, sym: SymbolId) -> Option<&EvaluatedValue> {
+    pub(crate) fn lookup_constant(&self, sym: SymbolId) -> Option<&EvaluatedValue> {
         self.constants.get(&sym)
     }
 }

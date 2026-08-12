@@ -75,6 +75,7 @@ pub enum ElaboratedSequentialStmt {
         then_branch: Vec<ElaboratedSequentialStmt>,
         else_branch: Option<Vec<ElaboratedSequentialStmt>>,
     },
+    VariableAssignment { target_symbol: SymbolId, value_expr: ExprId },
 }
 
 #[derive(Debug, Clone)]
@@ -187,6 +188,9 @@ pub struct Environment {
 
     /// Maps a local AST symbol (like 'clk') to the physical wire in the ElaboratedArena
     pub signals: HashMap<SymbolId, SignalId>,
+
+    /// Local variables inside processes or loop frames
+    pub variables: HashMap<SymbolId, EvaluatedValue>,
 }
 
 // impl fmt::Display for ElaboratorError {

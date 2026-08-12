@@ -138,6 +138,8 @@ pub struct Entity<'a> {
     pub name_span: Span,
     pub ports_start: PortId,
     pub ports_end: PortId,
+    pub generics_start:DeclId,
+    pub generics_end: DeclId,
 }
 
 #[derive(Debug, Clone)]

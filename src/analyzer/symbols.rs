@@ -16,12 +16,15 @@ impl SymbolInterner {
         id
     }
     /// Use only when you are sure the symbol is already present
-    pub fn get(&self, name: &str) -> Option<SymbolId> {
+    pub fn get_symbol(&self, name: &str) -> Option<SymbolId> {
         let normalized = name.to_lowercase();
         self.map.get(&normalized).copied()
     }
     
     pub(crate) fn iter(&self) -> std::slice::Iter<'_, String>  {
         self.vec.iter()
+    }
+    pub fn get(&self, symbol_id:SymbolId) -> &str  {
+        &self.vec[symbol_id.0 as usize]
     }
 }

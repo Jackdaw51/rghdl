@@ -132,7 +132,7 @@ pub struct ScopeArena {
 #[derive(Default, Debug)]
 pub struct SymbolInterner {
     map: HashMap<String, SymbolId>,
-    vec: Vec<String>,
+    pub vec: Vec<String>,
 }
 pub struct SymbolTable {
     pub scopes: ScopeArena,

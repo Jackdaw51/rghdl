@@ -161,38 +161,6 @@ pub struct Lexer<'a> {
 // pub struct ExprId(pub u32);
 
 // #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BinaryOp {
-    // Relational (Return BOOLEAN)
-    Eq,
-    Neq,
-    Lt,
-    Lte,
-    Gt,
-    Gte,
-    // Arithmetic (Return same as operands)
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Concat, //&
-    // Logical (Return same as operands)
-    And,
-    Or,
-    Xor,
-    Nand,
-    Nor,
-
-    Arrow, // TODO should make sure it disallows stuff like a=>b
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnaryOp {
-    Not,
-    Neg,
-    Plus,
-    Abs,
-}
-
 
 #[derive(Debug, Clone)]
 pub struct ParseError {
