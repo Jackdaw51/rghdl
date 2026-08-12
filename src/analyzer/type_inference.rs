@@ -4,9 +4,9 @@ use crate::{
     analyzer::{SemanticAnalyzer, SemanticError, SemanticErrorKind, TypeId, TypeKind},
     parser::{
         Span,
-        ast::{BinaryOp, Expr, ExprId, UnaryOp},
     },
 };
+use crate::ast::{BinaryOp, Expr, ExprId, UnaryOp};
 
 impl<'a> SemanticAnalyzer<'a> {
     pub fn infer_expr_type(

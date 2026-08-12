@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use crate::parser::Span;
-use crate::parser::ast::*;
+use crate::ast::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);

@@ -10,6 +10,7 @@ mod analyzer;
 mod parser;
 mod printer;
 mod elaborator;
+pub(crate) mod ast;
 
 fn main() {
     // let source_string = fs::read_to_string("test_files/and_gate.vhd").expect("Not found");

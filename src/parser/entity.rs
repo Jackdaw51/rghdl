@@ -1,5 +1,5 @@
 use crate::{
-    parser::ast::{Entity, EntityId},
+    ast::{Entity, EntityId},
     parser::TokenKind,
     parser::{ParseResult, Parser},
 };
@@ -40,7 +40,7 @@ impl<'a> Parser<'a> {
             ports_start,
             ports_end,
         };
-        
+
         Ok(self.arena.alloc_entity(entity))
     }
 }

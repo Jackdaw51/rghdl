@@ -10,7 +10,7 @@ mod elaborator;
 mod environment;
 
 use crate::analyzer::{SemanticAnalyzer, SymbolId, TypeId};
-use crate::parser::ast::{AstArena, BinaryOp, PortMode};
+use crate::ast::{AstArena, BinaryOp, PortMode};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

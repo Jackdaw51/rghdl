@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::analyzer::SemanticErrorKind::DuplicateDeclaration;
 use crate::analyzer::{DeclRef, ExprId, ScopeKind, SemanticError, SemanticErrorKind, SymbolTable, TypeArena, TypeId, TypeKind};
-use crate::parser::ast::*;
+use crate::ast::*;
 use crate::parser::Span;
 
 impl<'a> super::SemanticAnalyzer<'a> {

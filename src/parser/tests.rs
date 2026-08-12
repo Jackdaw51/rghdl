@@ -1,8 +1,8 @@
 use crate::parser::{
     Parser,
-    ast::{BinaryOp, Expr},
     TokenKind,
 };
+use crate::ast::{BinaryOp, Expr};
 
 #[test]
 fn test_pratt_target_vs_assign() {

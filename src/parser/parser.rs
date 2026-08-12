@@ -1,4 +1,8 @@
-use crate::{exp_tks, parser::{Lexer, ParseError, ParseErrorKind, ParseResult, Parser, Span, Token, TokenKind, ast::{AstArena, Port, PortId, PortMode}}};
+use crate::ast::{AstArena, Port, PortId, PortMode};
+use crate::{
+    exp_tks,
+    parser::{Lexer, ParseError, ParseErrorKind, ParseResult, Parser, Span, Token, TokenKind},
+};
 
 impl<'a> Parser<'a> {
     pub(crate) fn new(source: &'a str) -> Self {
@@ -44,7 +48,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super)fn print_errors(&self) {
+    pub(super) fn print_errors(&self) {
         for error in &self.errors {
             println!(
                 "{:?}, line {}",
@@ -71,10 +75,10 @@ impl<'a> Parser<'a> {
     pub(super) fn err<T>(&self, kind: ParseErrorKind, span: Span) -> ParseResult<T> {
         Err(ParseError { kind, span })
     }
-    pub (super)fn advance(&mut self) -> Token {
+    pub(super) fn advance(&mut self) -> Token {
         self.lexer.next()
     }
-    pub(super)fn expect(&mut self, expected: TokenKind) -> ParseResult<Token> {
+    pub(super) fn expect(&mut self, expected: TokenKind) -> ParseResult<Token> {
         let token = self.advance();
         if token.kind != expected {
             if token.kind == TokenKind::Eof {
@@ -176,7 +180,10 @@ impl<'a> Parser<'a> {
         Ok(span)
     }
 
-    pub(super) fn slice_until_depth_zero(&mut self, terminators: &[TokenKind]) -> ParseResult<Span> {
+    pub(super) fn slice_until_depth_zero(
+        &mut self,
+        terminators: &[TokenKind],
+    ) -> ParseResult<Span> {
         let start = self.lexer.peek().span.start;
         let mut end = start;
         let mut paren_depth = 0;

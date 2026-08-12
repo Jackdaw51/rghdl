@@ -3,13 +3,13 @@ use std::ops::Range;
 use super::Parser;
 use crate::exp_tks;
 use crate::parser::{ParseResult, TokenKind};
-use crate::parser::ast::{ConcurrentStmt, ElsifBranch, SequentialStmt};
+use crate::ast::{ConcurrentStmt, ElsifBranch, SequentialStmt};
 
 use crate::{
     parser::ParseErrorKind,
     parser::Span,
-    parser::ast::{Architecture, ArchitectureId, Decl, DeclId},
 };
+use crate::ast::{Architecture, ArchitectureId, Decl, DeclId};
 
 impl<'a> Parser<'a> {
     /// Parses sequential statements until it hits a boundary token (end, elsif, else).

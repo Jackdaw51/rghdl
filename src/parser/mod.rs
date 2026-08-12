@@ -1,9 +1,7 @@
 use std::{iter::Peekable, str::Chars};
 
-use crate::parser::ast::AstArena;
-
+use crate::ast::AstArena;
 mod architecture;
-pub(crate) mod ast;
 mod entity;
 mod expressions;
 pub(crate) mod lexer;

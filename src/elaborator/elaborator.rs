@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt::format};
 
+use crate::ast::{ArchitectureId, AstArena, EntityId, Expr};
 use crate::{
     analyzer::{DeclRef, ScopeId, SemanticAnalyzer, SymbolId},
     elaborator::{
@@ -7,7 +8,6 @@ use crate::{
         ElaboratedSignal, Elaborator, ElaboratorError, Environment, EvaluatedExpr, EvaluatedValue,
         ExprId, InstanceId, InstanceNode, PortBinding, ProcessId, SignalId,
     },
-    parser::ast::{ArchitectureId, AstArena, EntityId, Expr},
 };
 
 impl<'a> Elaborator<'a> {
@@ -149,7 +149,7 @@ impl<'a> Elaborator<'a> {
 
     fn elaborate_generics(
         &self,
-        entity: &crate::parser::ast::Entity<'_>,
+        entity: &crate::ast::Entity<'_>,
         env: &mut Environment,
     ) -> Result<HashMap<SymbolId, EvaluatedValue>, ElaboratorError> {
         let generics = HashMap::new();
@@ -159,7 +159,7 @@ impl<'a> Elaborator<'a> {
     }
     fn elaborate_ports(
         &mut self,
-        entity: &crate::parser::ast::Entity,
+        entity: &crate::ast::Entity,
         env: &mut Environment,
     ) -> Result<(Vec<ElaboratedPort>, Vec<PortBinding>), ElaboratorError> {
         let mut ports = Vec::new();
@@ -224,7 +224,7 @@ impl<'a> Elaborator<'a> {
     fn elaborate_declarations(
         &mut self,
         entity_scope: ScopeId, // Pass this down from `elaborate_architecture`
-        arch: &crate::parser::ast::Architecture,
+        arch: &crate::ast::Architecture,
         env: &mut Environment,
         local_signals: &mut Vec<SignalId>,
         local_constants: &mut HashMap<SymbolId, EvaluatedValue>,
@@ -246,7 +246,7 @@ impl<'a> Elaborator<'a> {
         // 3. Iterate over the AST declarations
         for decl in self.ast.declarations(arch) {
             match decl {
-                crate::parser::ast::Decl::Signal {
+                crate::ast::Decl::Signal {
                     name,
                     decl_type: _,
                     default_val: _,
@@ -274,7 +274,7 @@ impl<'a> Elaborator<'a> {
                     local_signals.push(sig_id);
                 }
 
-                crate::parser::ast::Decl::Constant {
+                crate::ast::Decl::Constant {
                     name,
                     decl_type: _,
                     default_val,
@@ -300,7 +300,7 @@ impl<'a> Elaborator<'a> {
     /// Flattens processes, evaluates assignments, and recurses down child component instances.
     fn elaborate_concurrent_stmts(
         &mut self,
-        arch: &crate::parser::ast::Architecture,
+        arch: &crate::ast::Architecture,
         env: &mut Environment,
         _current_instance_id: InstanceId,
         _path: &str,
@@ -318,7 +318,7 @@ impl<'a> Elaborator<'a> {
 
         for stmt in self.ast.conc_statements(arch) {
             match stmt {
-                crate::parser::ast::ConcurrentStmt::ConcurrentAssignment {
+                crate::ast::ConcurrentStmt::ConcurrentAssignment {
                     label,
                     target,
                     expression,
@@ -339,7 +339,7 @@ impl<'a> Elaborator<'a> {
                         value_expr,
                     });
                 }
-                crate::parser::ast::ConcurrentStmt::Process {
+                crate::ast::ConcurrentStmt::Process {
                     label,
                     process_vars,
                     stmts,
@@ -347,7 +347,7 @@ impl<'a> Elaborator<'a> {
                     let proc_id = self.elaborate_process(stmt, env)?;
                     processes.push(proc_id);
                 }
-                crate::parser::ast::ConcurrentStmt::ComponentInstantiation {
+                crate::ast::ConcurrentStmt::ComponentInstantiation {
                     label,
                     component_name,
                     port_map_span,
@@ -369,14 +369,14 @@ impl<'a> Elaborator<'a> {
 
                     children.push(child_id);
                 }
-                crate::parser::ast::ConcurrentStmt::ConditionalAssignment { target } => todo!(),
+                crate::ast::ConcurrentStmt::ConditionalAssignment { target } => todo!(),
             }
         }
 
         Ok((concurrent_assignments, processes, children))
     }
 
-    fn get_base_symbol(&self, expr_id: crate::parser::ast::ExprId) -> Option<SymbolId> {
+    fn get_base_symbol(&self, expr_id: crate::ast::ExprId) -> Option<SymbolId> {
         match self.ast.exprs[expr_id.0 as usize] {
             Expr::Identifier { name, .. } => self.sa.symbols.interner.get(name),
             Expr::CallOrIndex { callee, .. } => {
@@ -391,7 +391,7 @@ impl<'a> Elaborator<'a> {
     /// This is used for literals, generic mappings, and array bounds.
     pub fn eval_const_expr(
         &self,
-        expr_id: crate::parser::ast::ExprId,
+        expr_id: crate::ast::ExprId,
         env: &Environment,
     ) -> Result<EvaluatedValue, ElaboratorError> {
         todo!()
@@ -401,14 +401,14 @@ impl<'a> Elaborator<'a> {
     /// allocates it in the ElaboratedArena, and returns its physical ExprId.
     pub(crate) fn lower_expr(
         &mut self,
-        ast_expr_id: crate::parser::ast::ExprId,
+        ast_expr_id: crate::ast::ExprId,
         env: &Environment,
     ) -> Result<ExprId, ElaboratorError> {
         let ast_expr = &self.ast.expr(ast_expr_id);
 
         let span = ast_expr.span();
         let evaluated_expr = match ast_expr {
-            crate::parser::ast::Expr::Identifier { name, .. } => {
+            crate::ast::Expr::Identifier { name, .. } => {
                 let sym = self.get_symbol(name);
 
                 // Is it a compile-time constant or generic?
@@ -431,7 +431,7 @@ impl<'a> Elaborator<'a> {
                 }
             }
 
-            crate::parser::ast::Expr::Binary { op, lhs, rhs, span } => {
+            crate::ast::Expr::Binary { op, lhs, rhs, span } => {
                 // Recursively lower the left and right sides.
                 // Notice we pass `env` down so the children have the same scope context.
                 let lhs_physical_id = self.lower_expr(*lhs, env)?;
@@ -445,7 +445,7 @@ impl<'a> Elaborator<'a> {
                 }
             }
 
-            crate::parser::ast::Expr::Literal { text, span } => {
+            crate::ast::Expr::Literal { text, span } => {
                 let lit = self.get_symbol(*text);
                 todo!();
 
@@ -479,7 +479,7 @@ impl<'a> Elaborator<'a> {
 
     fn elaborate_process(
         &mut self,
-        proc_ast: &crate::parser::ast::ConcurrentStmt,
+        proc_ast: &crate::ast::ConcurrentStmt,
         env: &Environment,
     ) -> Result<ProcessId, ElaboratorError> {
         todo!();

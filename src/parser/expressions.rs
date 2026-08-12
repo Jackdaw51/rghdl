@@ -1,7 +1,5 @@
-use crate::parser::{
-    ParseError, ParseResult, Parser, Span, TokenKind,
-    ast::{BinaryOp, Expr, ExprId, UnaryOp},
-};
+use crate::ast::{BinaryOp, Expr, ExprId, UnaryOp};
+use crate::parser::{ParseError, ParseResult, Parser, Span, TokenKind};
 
 impl<'a> Parser<'a> {
     /// Entry point for parsing an expression.

@@ -1,12 +1,10 @@
 use std::fmt::Display;
 
-use crate::parser::{
-    Span,
-    ast::{
-        AstArena, ConcurrentStmt, ContextItem, Decl, ElsifBranch, Entity, Expr, ExprId, Port,
-        SequentialStmt, UnaryOp,
-    },
+use crate::ast::{
+    AstArena, ConcurrentStmt, ContextItem, Decl, ElsifBranch, Entity, Expr, ExprId, Port,
+    SequentialStmt, UnaryOp,
 };
+use crate::parser::Span;
 
 pub struct FormatCtx<'a, T> {
     pub item: &'a T,
