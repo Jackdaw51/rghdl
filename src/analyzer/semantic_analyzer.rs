@@ -130,6 +130,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
             .symbols
             .interner
             .get_or_internalize(self.get_text(&arch.entity_name));
+        // dbg!(self.get_text(&arch.entity_name));
 
         // Find corresponding Entity scope (or fallback to Global)
         let (entity_scope, entity_id) = match self.symbols.lookup(self.current_scope, entity_sym) {

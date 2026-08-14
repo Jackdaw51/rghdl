@@ -1,6 +1,5 @@
 use crate::analyzer::{SymbolId, SymbolInterner};
 
-
 impl SymbolInterner {
     /// Returns the symbol if it's present in the map, otherwise inserts it and returns its Id
     pub fn get_or_internalize(&mut self, name: &str) -> SymbolId {
@@ -20,11 +19,11 @@ impl SymbolInterner {
         let normalized = name.to_lowercase();
         self.map.get(&normalized).copied()
     }
-    
-    pub(crate) fn iter(&self) -> std::slice::Iter<'_, String>  {
+
+    pub(crate) fn iter(&self) -> std::slice::Iter<'_, String> {
         self.vec.iter()
     }
-    pub fn get(&self, symbol_id:SymbolId) -> &str  {
+    pub fn get(&self, symbol_id: SymbolId) -> &str {
         &self.vec[symbol_id.0 as usize]
     }
 }

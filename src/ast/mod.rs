@@ -252,7 +252,7 @@ pub struct AstArena<'a> {
     pub entities: Vec<Entity<'a>>,
     pub decls: Vec<Decl<'a>>,
     pub architectures: Vec<Architecture<'a>>,
-    pub elsifs: Vec<ElsifBranch>, // can't be a simple statement otherwise you lose the slice trick
+    pub elsifs: Vec<ElsifBranch>, // Will HAve to have an indirection table as well TODO
 
     pub sequential_stmts: Vec<SequentialStmt<'a>>,
     pub seq_stmt_lists: Vec<SeqStmtId>,

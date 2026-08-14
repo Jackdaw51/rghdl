@@ -84,6 +84,8 @@ begin
                 end if;
                 -- Move the pointer forward by the step size every audio sample
                 phase_acc <= phase_acc + PHASE_STEP;
+            elsif something_3 then
+                b <= '2';
             end if;
         else
             y <= abs('1');

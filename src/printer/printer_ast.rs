@@ -1,50 +1,10 @@
 use std::fmt::Display;
 
 use crate::ast::{
-    AstArena, ConcurrentStmt, ContextItem, Decl, ElsifBranch, Entity, Expr, ExprId, Port,
-    SequentialStmt, UnaryOp,
+    AstArena, ConcurrentStmt, ContextItem, Decl, ElsifBranch, Entity, Expr, Port, SequentialStmt,
+    UnaryOp,
 };
-use crate::parser::Span;
-
-pub struct FormatCtx<'a, T> {
-    pub item: &'a T,
-    pub source: &'a str,
-    pub arena: &'a AstArena<'a>,
-    pub indent: usize,
-}
-impl<'a, T> FormatCtx<'a, T> {
-    fn get_text(&self, span: &Span) -> &'a str {
-        &self.source[span.start..span.end]
-    }
-    fn child<U>(&self, item: &'a U) -> FormatCtx<'a, U> {
-        FormatCtx {
-            item: item,
-            source: self.source,
-            arena: self.arena,
-            indent: self.indent,
-        }
-    }
-    fn child_indented<U>(&self, item: &'a U) -> FormatCtx<'a, U> {
-        FormatCtx {
-            item,
-            source: self.source,
-            arena: self.arena,
-            indent: self.indent + 1,
-        }
-    }
-    fn pad(&self) -> String {
-        "\t".repeat(self.indent)
-    }
-    fn get_expr(&self, expr_id: ExprId) -> &Expr<'a> {
-        &self.arena.exprs[expr_id.0 as usize]
-    }
-
-    // let stmt_ctx = FormatCtx {
-    //                 item: stmt,
-    //                 source: self.source,
-    //                 arena: self.arena,
-    //             };
-}
+use crate::printer::FormatCtx;
 
 impl<'a> Display for FormatCtx<'a, AstArena<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

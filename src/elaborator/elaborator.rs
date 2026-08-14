@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::analyzer::TypeId;
 use crate::ast::{
-    Architecture, ArchitectureId, AstArena, BinaryOp, ConcurrentStmt, Decl, Entity, EntityId, Expr, SequentialStmt, UnaryOp,
+    Architecture, ArchitectureId, AstArena, BinaryOp, ConcurrentStmt, Decl, Entity, EntityId, Expr,
+    SequentialStmt, UnaryOp,
 };
 use crate::elaborator::{ElaboratedDesign, ElaboratedSequentialStmt};
 use crate::parser::Span;
@@ -79,10 +80,7 @@ impl<'a> Elaborator<'a> {
         let mut concurrent_assignments = Vec::new();
         let mut children = Vec::new();
 
-        let stmt_slice =
-            &self.ast.concurrent_stmts[arch.stmts.start as usize..arch.stmts.end as usize];
-
-        for stmt in stmt_slice {
+        for stmt in self.ast.conc_statements(arch.stmts.clone()) {
             match stmt {
                 ConcurrentStmt::ConcurrentAssignment {
                     target, expression, ..
@@ -94,9 +92,7 @@ impl<'a> Elaborator<'a> {
                         value_expr: expr_id,
                     });
                 }
-                ConcurrentStmt::ConditionalAssignment {
-                    ..
-                } => {
+                ConcurrentStmt::ConditionalAssignment { .. } => {
                     todo!()
                 }
                 ConcurrentStmt::Process {
@@ -105,6 +101,13 @@ impl<'a> Elaborator<'a> {
                     label,
                     ..
                 } => {
+                    let process_name_str = match label {
+                        Some(lbl) => lbl.to_string(),
+                        None => {
+                            // Generate a unique, illegal-in-VHDL name so it never clashes with user code
+                            format!("_unlabeled_process_{}", stmts.start)
+                        }
+                    };
                     // let proc_id = self.elaborate_process(
                     //     label.unwrap_or("anon_process"),
                     //     process_vars,
@@ -164,8 +167,11 @@ impl<'a> Elaborator<'a> {
             &self.ast.decls[entity.generics_start.0 as usize..entity.generics_end.0 as usize];
 
         for decl in decl_slice {
-            if let Decl::Constant { //TODO check if it's correct
-                name, default_val, ..
+            if let Decl::Constant {
+                //TODO check if it's correct
+                name,
+                default_val,
+                ..
             } = decl
             {
                 let sym = self.get_symbol(name);
@@ -231,7 +237,7 @@ impl<'a> Elaborator<'a> {
                     let sym = self.get_symbol(name);
                     let sig_id = self.arena.alloc_signal(ElaboratedSignal {
                         name: sym,
-                        type_id: TypeId(0),//TODO
+                        type_id: TypeId(0), //TODO
                         high_bound: 0,
                         low_bound: 0,
                         driver_count: 0,
@@ -248,7 +254,9 @@ impl<'a> Elaborator<'a> {
                         env.insert_constant(sym, val);
                     }
                 }
-                _ => {todo!()}
+                _ => {
+                    todo!()
+                }
             }
         }
         Ok(signals)
@@ -269,10 +277,8 @@ impl<'a> Elaborator<'a> {
 
         let mut proc_env = env.extend();
         let mut lowered_stmts = Vec::new();
-        let seq_slice =
-            &self.ast.sequential_stmts[stmts_range.start as usize..stmts_range.end as usize];
 
-        for stmt in seq_slice {
+        for stmt in self.ast.seq_statements(stmts_range) {
             self.lower_sequential_stmt(stmt, &mut proc_env, &mut lowered_stmts)?;
         }
 
@@ -309,8 +315,10 @@ impl<'a> Elaborator<'a> {
                     value_expr: val_expr,
                 });
             }
-            
-            _ => {unimplemented!()}
+
+            _ => {
+                unimplemented!()
+            }
         }
         Ok(())
     }
@@ -559,8 +567,9 @@ impl<'a> Elaborator<'a> {
         env: &Environment,
     ) -> Result<SignalId, ElaboratorError> {
         let sym = self.resolve_expr_symbol(expr_id)?;
-        env.lookup_signal(sym)
-            .ok_or_else(|| ElaboratorError::SignalNotFound(self.sa.symbols.interner.get(sym).to_string()))
+        env.lookup_signal(sym).ok_or_else(|| {
+            ElaboratorError::SignalNotFound(self.sa.symbols.interner.get(sym).to_string())
+        })
     }
 
     /// Returns the symbol of the identifier corresponding to expr_id
@@ -579,6 +588,10 @@ impl<'a> Elaborator<'a> {
     }
 
     fn get_symbol(&self, name: &str) -> SymbolId {
-        self.sa.symbols.interner.get_symbol(name).expect("If semantic analysis passed, this shouldn't panic")
+        self.sa
+            .symbols
+            .interner
+            .get_symbol(name)
+            .expect(&format!("If semantic analysis passed, this shouldn't panic. Panicked on {}",name))
     }
 }

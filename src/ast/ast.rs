@@ -60,15 +60,15 @@ impl<'a> AstArena<'a> {
         &self.decls[arch.decls_start.0 as usize..arch.decls_end.0 as usize]
     }
 
-    pub(crate) fn seq_statements(&'a self, arch: &Architecture<'a>) -> impl Iterator<Item = &SequentialStmt> {
-        let seq_ids = &self.seq_stmt_lists[arch.stmts.start as usize..arch.stmts.end as usize];
+    pub(crate) fn seq_statements(&'a self, range: Range<u32>) -> impl Iterator<Item = &SequentialStmt> {
+        let seq_ids = &self.seq_stmt_lists[range.start as usize..range.end as usize];
 
         seq_ids
             .iter()
             .map(|id| &self.sequential_stmts[id.0 as usize])
     }
-    pub(crate) fn conc_statements(&self, arch: &Architecture<'a>) -> impl Iterator<Item = &ConcurrentStmt> {
-        let conc_ids = &self.conc_stmt_lists[arch.stmts.start as usize..arch.stmts.end as usize];
+    pub(crate) fn conc_statements(&self, range: Range<u32>) -> impl Iterator<Item = &ConcurrentStmt> {
+        let conc_ids = &self.conc_stmt_lists[range.start as usize..range.end as usize];
         conc_ids
             .iter()
             .map(|id| &self.concurrent_stmts[id.0 as usize])
