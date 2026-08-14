@@ -122,7 +122,6 @@ impl<'a> Parser<'a> {
             decls_end: DeclId(decls_end),
             stmts: stmts_start..stmts_end,
         };
-
         Ok(self.arena.alloc_architecture(arch))
     }
     fn parse_architecture_declaration(&mut self) -> ParseResult<()> {

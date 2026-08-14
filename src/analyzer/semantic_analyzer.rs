@@ -126,12 +126,13 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
     fn analyze_architecture(&mut self, arch: &Architecture<'a>, arch_id: u32) {
         // Link Architecture Scope -> Entity Scope -> Global Scope
+        //Should be safe to unwrap
         let entity_sym = self
             .symbols
             .interner
-            .get_or_internalize(self.get_text(&arch.entity_name));
-        // dbg!(self.get_text(&arch.entity_name));
-
+            .get_symbol(self.get_text(&arch.entity_name)).unwrap();
+        self.symbols.interner.get_or_internalize(arch.name);
+        
         // Find corresponding Entity scope (or fallback to Global)
         let (entity_scope, entity_id) = match self.symbols.lookup(self.current_scope, entity_sym) {
             Some(DeclRef::Entity {

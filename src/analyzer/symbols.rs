@@ -8,6 +8,7 @@ impl SymbolInterner {
         if let Some(&id) = self.map.get(&normalized) {
             return id;
         }
+        dbg!(normalized.clone());
 
         let id = SymbolId(self.vec.len() as u32);
         self.vec.push(normalized.clone());
