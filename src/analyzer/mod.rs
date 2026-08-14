@@ -5,7 +5,7 @@ pub(crate) mod symbols;
 mod type_inference;
 pub(crate) mod types;
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 use crate::parser::Span;
 use crate::ast::*;
@@ -177,6 +177,7 @@ pub enum TypeKind {
     /// Unresolved or error
     Error,
 }
+
 
 impl<'a> Debug for SemanticAnalyzer<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

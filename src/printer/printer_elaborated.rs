@@ -1,11 +1,10 @@
 use std::fmt::Display;
 
 use crate::{
-    elaborator::{
+    analyzer::TypeKind, elaborator::{
         ElaboratedConcurrentAssignment, ElaboratedDesign, ElaboratedProcess,
         ElaboratedSequentialStmt, EvaluatedExpr, EvaluatedValue, InstanceNode,
-    },
-    printer::ElaboratedFormatCtx,
+    }, printer::ElaboratedFormatCtx,
 };
 
 impl<'a> Display for ElaboratedFormatCtx<'a, EvaluatedValue> {
@@ -149,13 +148,14 @@ impl<'a> Display for ElaboratedFormatCtx<'a, InstanceNode> {
             writeln!(f, "\tport (")?;
             for (i, port) in inst.ports.iter().enumerate() {
                 let term = if i == inst.ports.len() - 1 { "" } else { ";" };
-                // TODO: fetch the real type name from self.sa.types using port.type_id
+                // When got to this point should be safe to unwrap 
+                let a = self.sa.types.get(port.type_id).unwrap();
                 writeln!(
                     f,
-                    "\t\t{}: {:?} TYPE_{}{}",
+                    "\t\t{}: {:?} {}{}",
                     self.sym(port.name),
                     port.mode,
-                    port.type_id.0,
+                    self.child(a),
                     term
                 )?;
             }
@@ -229,5 +229,20 @@ impl<'a> Display for ElaboratedFormatCtx<'a, InstanceNode> {
         }
 
         writeln!(f, "end {};\n", self.sym(inst.architecture_name))
+    }
+}
+impl<'a> Display for ElaboratedFormatCtx<'a, TypeKind> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.item {
+            TypeKind::Enum { name, .. }
+            | TypeKind::Integer { name }
+            | TypeKind::Real { name }
+            | TypeKind::Array { name, .. }
+            | TypeKind::Record { name, .. }
+            | TypeKind::Function { name, .. } => {
+                write!(f, "{}", self.sym(*name))
+            }
+            TypeKind::Error => write!(f, "<error_type>"),
+        }
     }
 }

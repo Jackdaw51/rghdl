@@ -78,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut elaborated_vhdl = String::new();
     write!(&mut elaborated_vhdl, "{}", fmt_ctx)?;
 
-    println!("=== Elaborated VHDL Output ===\n{}", elaborated_vhdl);
+    print!("=== Elaborated VHDL Output ===\n{}", elaborated_vhdl);
 
     Ok(())
     // println!("{:?}",a.symbols);
