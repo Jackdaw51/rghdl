@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::fmt::Write;
+use std::{fmt::Write, process::Command};
 use std::fs;
 
 use crate::{
@@ -80,6 +80,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     print!("=== Elaborated VHDL Output ===\n{}", elaborated_vhdl);
 
+    let output_path = "test_files/elaborated_out.vhd";
+    fs::write(output_path, &elaborated_vhdl)?;
+
+    run_ghdl_validation(output_path, top_entity_ast.name)?;
+
     Ok(())
     // println!("{:?}",a.symbols);
 
@@ -92,4 +97,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //     };
     // println!("{format}");
 
+}
+
+fn run_ghdl_validation(file_path: &str, top_entity: &str) -> Result<(), Box<dyn std::error::Error>> {
+    println!("[GHDL Verification] Analyzing elaborated code...");
+
+    let analyze_status = Command::new("ghdl")
+        .args(["-a", file_path])
+        .status()?;
+
+    if !analyze_status.success() {
+        return Err("Original GHDL failed to parse/analyze output of rghdl elaborator!".into());
+    }
+
+    let synth_status = Command::new("ghdl")
+        .args(["-e", top_entity])
+        .status()?;
+
+    if !synth_status.success() {
+        return Err("Original GHDL failed to elaborate output of rghdl elaborator!".into());
+    }
+
+    println!("[GHDL Verification] SUCCESS: Output accepted by GHDL!");
+    Ok(())
 }
