@@ -1,10 +1,12 @@
 use std::fmt::Display;
 
 use crate::{
-    analyzer::TypeKind, elaborator::{
+    analyzer::TypeKind,
+    elaborator::{
         ElaboratedConcurrentAssignment, ElaboratedDesign, ElaboratedProcess,
         ElaboratedSequentialStmt, EvaluatedExpr, EvaluatedValue, InstanceNode,
-    }, printer::ElaboratedFormatCtx,
+    },
+    printer::ElaboratedFormatCtx,
 };
 
 impl<'a> Display for ElaboratedFormatCtx<'a, EvaluatedValue> {
@@ -141,14 +143,19 @@ impl<'a> Display for ElaboratedFormatCtx<'a, InstanceNode> {
             writeln!(f, "{}", self.child(child_node))?;
         }
 
-        let unique_entity_name = format!("{}_{}", self.sym(inst.entity_name), inst.instance_name.0);
+        let unique_entity_name = if inst.hierarchical_path == "top" {
+            // Preserve exact top-level entity name for GHDL validation
+            self.sa.symbols.interner.get(inst.entity_name).to_string()
+        } else {
+            format!("{}_{}", self.sym(inst.entity_name), inst.instance_name.0)
+        };
 
         writeln!(f, "entity {} is", unique_entity_name)?;
         if !inst.ports.is_empty() {
             writeln!(f, "\tport (")?;
             for (i, port) in inst.ports.iter().enumerate() {
                 let term = if i == inst.ports.len() - 1 { "" } else { ";" };
-                // When got to this point should be safe to unwrap 
+                // When got to this point should be safe to unwrap
                 let a = self.sa.types.get(port.type_id).unwrap();
                 writeln!(
                     f,
