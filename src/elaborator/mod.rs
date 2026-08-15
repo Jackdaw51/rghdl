@@ -75,7 +75,10 @@ pub enum ElaboratedSequentialStmt {
         then_branch: Vec<ElaboratedSequentialStmt>,
         else_branch: Option<Vec<ElaboratedSequentialStmt>>,
     },
-    VariableAssignment { target_symbol: SymbolId, value_expr: ExprId },
+    VariableAssignment {
+        target_symbol: SymbolId,
+        value_expr: ExprId,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -181,6 +184,8 @@ pub enum ElaboratorError {
     NotAnEntity,
 }
 
+// Environment
+
 #[derive(Debug, Clone, Default)]
 pub struct Environment {
     /// Tracks compile-time constants and evaluated generic values
@@ -213,3 +218,74 @@ pub struct Environment {
 // }
 
 // impl std::error::Error for ElaboratorError {}
+
+use crate::analyzer::TypeArena;
+
+#[derive(Debug, Default, Clone)]
+pub struct Package {
+    /// Types exported by this package (keyed by SymbolId for fast AST scope resolution)
+    pub types: HashMap<SymbolId, TypeId>,
+    
+    /// Constants exported by this package (e.g., ieee.numeric_std constants)
+    pub constants: HashMap<SymbolId, EvaluatedValue>,
+    
+    /// Package-level signals or shared variables
+    pub signals: HashMap<SymbolId, SignalId>,
+
+    /// Internal helper map: string name -> SymbolId for compiler string lookups
+    pub name_map: HashMap<String, SymbolId>,
+}
+
+impl Package {
+    pub fn add_type(&mut self, name: &str, sym: SymbolId, type_id: TypeId) {
+        let name_lower = name.to_lowercase();
+        self.types.insert(sym, type_id);
+        self.name_map.insert(name_lower, sym);
+    }
+
+    pub fn add_constant(&mut self, name: &str, sym: SymbolId, val: EvaluatedValue) {
+        let name_lower = name.to_lowercase();
+        self.constants.insert(sym, val);
+        self.name_map.insert(name_lower, sym);
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Library {
+    pub packages: HashMap<String, Package>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct LibraryRegistry {
+    pub libraries: HashMap<String, Library>,
+    pub types: TypeArena,
+}
+
+impl LibraryRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Fetches a package using case-insensitive library and package names
+    pub fn get_package(&self, lib_name: &str, pkg_name: &str) -> Option<&Package> {
+        self.libraries
+            .get(&lib_name.to_lowercase())?
+            .packages
+            .get(&pkg_name.to_lowercase())
+    }
+
+    /// Fetches a mutable reference to a package (used during package elaboration)
+    pub fn get_package_mut(&mut self, lib_name: &str, pkg_name: &str) -> Option<&mut Package> {
+        self.libraries
+            .get_mut(&lib_name.to_lowercase())?
+            .packages
+            .get_mut(&pkg_name.to_lowercase())
+    }
+
+    /// Helper for the compiler to look up primitive TypeIds by string
+    pub fn get_type(&self, lib_name: &str, pkg_name: &str, type_name: &str) -> Option<TypeId> {
+        let pkg = self.get_package(lib_name, pkg_name)?;
+        let sym_id = pkg.name_map.get(&type_name.to_lowercase())?;
+        pkg.types.get(sym_id).copied()
+    }
+}

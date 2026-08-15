@@ -1,53 +1,53 @@
 use std::collections::HashMap;
 
 use crate::analyzer::SemanticErrorKind::DuplicateDeclaration;
-use crate::analyzer::{DeclRef, ExprId, ScopeKind, SemanticError, SemanticErrorKind, SymbolTable, TypeArena, TypeId, TypeKind};
+use crate::analyzer::{
+    DeclRef, ExprId, ScopeKind, SemanticError, SemanticErrorKind, SymbolTable, TypeArena, TypeId,
+    TypeKind,
+};
 use crate::ast::*;
+use crate::elaborator::LibraryRegistry;
 use crate::parser::Span;
 
 impl<'a> super::SemanticAnalyzer<'a> {
-        pub fn new(ast: &'a AstArena<'a>, mut symbols: SymbolTable, source: &'a str) -> Self {
+    pub fn new(
+        ast: &'a AstArena<'a>,
+        mut symbols: SymbolTable,
+        source: &'a str,
+        registry: &LibraryRegistry,
+    ) -> Self {
         let root_scope = symbols.scopes.alloc(ScopeKind::Global, None);
-        let mut types = TypeArena::default();
 
-        // Intern primitive VHDL types into Global Scope
-        let std_logic_sym = symbols.interner.get_or_internalize("std_logic");
-        let type_std_logic = types.alloc(TypeKind::Enum {
-            name: std_logic_sym,
-            literals: vec![],
-        });
-        let _ = symbols.define(root_scope, std_logic_sym, DeclRef::Type(type_std_logic));
+        // We need direct references to these core types for the Semantic Analyzer to do fast type-checking (e.g., checking if an 'if' condition is a boolean)
+        // Ideally we would fetch these from the registry's std.standard and ieee.std_logic_1164 packages.
 
-        let integer_sym = symbols.interner.get_or_internalize("integer");
-        let type_integer = types.alloc(TypeKind::Integer { name: integer_sym });
-        let _ = symbols.define(root_scope, integer_sym, DeclRef::Type(type_integer));
+        let type_boolean = registry.get_type("std", "standard", "boolean").unwrap();
+        let type_integer = registry.get_type("std", "standard", "integer").unwrap();
+        let type_real = registry.get_type("std", "standard", "real").unwrap();
+        let type_std_logic = registry
+            .get_type("ieee", "std_logic_1164", "std_logic")
+            .unwrap();
+        let type_std_logic_vector = registry
+            .get_type("ieee", "std_logic_1164", "std_logic_vector")
+            .unwrap();
 
-        let real_sym = symbols.interner.get_or_internalize("real");
-        let type_real = types.alloc(TypeKind::Real { name: real_sym });
-        let _ = symbols.define(root_scope, real_sym, DeclRef::Type(type_real));
+        // ONLY implicitly import `std.standard` into the root scope.
+        // This mimics VHDL's implicit prependation `use std.standard.all;`
+        let std_pkg = registry.get_package("std", "standard").unwrap();
+        for (name_sym, type_id) in &std_pkg.types {
+            symbols
+                .define(root_scope, *name_sym, DeclRef::Type(*type_id))
+                .unwrap();
+        }
 
-        let boolean_sym = symbols.interner.get_or_internalize("boolean");
-        let type_boolean = types.alloc(TypeKind::Enum {
-            name: boolean_sym,
-            literals: vec![],
-        });
-        let _ = symbols.define(root_scope, boolean_sym, DeclRef::Type(type_boolean));
-
-        let std_logic_vector_sym = symbols.interner.get_or_internalize("std_logic_vector");
-        let type_std_logic_vector = types.alloc(TypeKind::Array {
-            name: std_logic_vector_sym,
-            element_type: type_std_logic,
-        });
-        let _ = symbols.define(
-            root_scope,
-            std_logic_vector_sym,
-            DeclRef::Type(type_std_logic_vector),
-        );
+        // Notice we DO NOT import ieee.std_logic_1164 here.
+        // The analyzer must wait until it parses a ContextItem::Use { path: "ieee.std_logic_1164.all" }
+        // before looping through ieee_pkg and injecting them into the current file's scope.
 
         Self {
             ast,
             symbols,
-            types,
+            types: registry.types.clone(),
             current_scope: root_scope,
             errors: Vec::new(),
             type_std_logic,
@@ -60,14 +60,103 @@ impl<'a> super::SemanticAnalyzer<'a> {
             expr_types: Vec::new(),
         }
     }
-    
-    pub fn analyze_all(&mut self) {
+
+    pub fn analyze_all(&mut self, registry: &LibraryRegistry) {
+        self.analyze_context_items(registry);
+
         for (i, entity) in self.ast.entities.iter().enumerate() {
             self.analyze_entity(entity, i as u32);
         }
 
         for (i, arch) in self.ast.architectures.iter().enumerate() {
             self.analyze_architecture(arch, i as u32);
+        }
+    }
+
+    pub fn analyze_context_items(&mut self, registry: &LibraryRegistry) {
+        for item in &self.ast.contexts {
+            match item {
+                ContextItem::Library { name } => {
+                    self.analyze_library_clause(name, registry);
+                }
+                ContextItem::Use { path } => {
+                    self.analyze_use_clause(path, registry);
+                }
+            }
+        }
+    }
+
+    fn analyze_library_clause(&mut self, name: &str, registry: &LibraryRegistry) {
+        let lib_lower = name.to_lowercase();
+        if lib_lower == "std" || lib_lower == "work" {
+            return;
+        }
+
+        if !registry.libraries.contains_key(&lib_lower) {
+            self.errors.push(SemanticError {
+                kind: SemanticErrorKind::UndefinedSymbol(format!("Library '{}' not found in registry", name)),
+                span: Span { start: 0, end: 0 }, // TODO
+            });
+        }
+    }
+
+    fn analyze_use_clause(&mut self, path: &str, registry: &LibraryRegistry) {
+        let parts: Vec<&str> = path.split('.').collect();
+        if parts.len() < 2 {
+            self.errors.push(SemanticError {
+                kind: SemanticErrorKind::UndefinedSymbol(format!("Malformed use clause path '{}'", path)),
+                span: Span { start: 0, end: 0 }, // TODO
+            });
+            return;
+        }
+
+        let lib_name = parts[0];
+        let pkg_name = parts[1];
+        let selector = parts.get(2).copied().unwrap_or("all");
+
+        let pkg = match registry.get_package(lib_name, pkg_name) {
+            Some(p) => p,
+            None => {
+                self.errors.push(SemanticError {
+                    kind: SemanticErrorKind::UndefinedSymbol(format!(
+                        "Package '{}.{}' not found in registry",
+                        lib_name, pkg_name
+                    )),
+                    span: Span { start: 0, end: 0 }, // TODO
+                });
+                return;
+            }
+        };
+
+        if selector.eq_ignore_ascii_case("all") {
+            // Bulk inject all package types into current global scope
+            for (sym_id, type_id) in &pkg.types {
+                let _ = self.symbols.define(
+                    self.current_scope,
+                    *sym_id,
+                    DeclRef::Type(*type_id),
+                );
+            }
+        } else {
+            // Selective import of a single item
+            let selector_lower = selector.to_lowercase();
+            if let Some(&sym_id) = pkg.name_map.get(&selector_lower) {
+                if let Some(&type_id) = pkg.types.get(&sym_id) {
+                    let _ = self.symbols.define(
+                        self.current_scope,
+                        sym_id,
+                        DeclRef::Type(type_id),
+                    );
+                }
+            } else {
+                self.errors.push(SemanticError {
+                    kind: SemanticErrorKind::UndefinedSymbol(format!(
+                        "Symbol '{}' does not exist in package '{}.{}'",
+                        selector, lib_name, pkg_name
+                    )),
+                    span: Span { start: 0, end: 0 }, // TODO
+                });
+            }
         }
     }
 
@@ -130,9 +219,10 @@ impl<'a> super::SemanticAnalyzer<'a> {
         let entity_sym = self
             .symbols
             .interner
-            .get_symbol(self.get_text(&arch.entity_name)).unwrap();
+            .get_symbol(self.get_text(&arch.entity_name))
+            .unwrap();
         self.symbols.interner.get_or_internalize(arch.name);
-        
+
         // Find corresponding Entity scope (or fallback to Global)
         let (entity_scope, entity_id) = match self.symbols.lookup(self.current_scope, entity_sym) {
             Some(DeclRef::Entity {

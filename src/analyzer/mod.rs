@@ -139,7 +139,7 @@ pub struct SymbolTable {
     pub interner: SymbolInterner,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct TypeArena {
     types: Vec<TypeKind>,
 }
@@ -177,6 +177,7 @@ pub enum TypeKind {
     /// Unresolved or error
     Error,
 }
+
 
 
 impl<'a> Debug for SemanticAnalyzer<'a> {

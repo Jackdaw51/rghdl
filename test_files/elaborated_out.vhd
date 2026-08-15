@@ -1,12 +1,12 @@
-entity and_gate_5 is
+entity and_gate_19 is
 	port (
-		a: In std_logic;
-		b: In std_logic;
-		z: Out std_logic
+		a: In boolean;
+		b: In boolean;
+		z: Out boolean
 	);
-end and_gate_5;
+end and_gate_19;
 
-architecture dataflow of and_gate_5 is
+architecture dataflow of and_gate_19 is
 begin
 	z <= a And b;
 end dataflow;

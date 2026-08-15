@@ -2,13 +2,12 @@ use std::collections::HashMap;
 
 use crate::analyzer::TypeId;
 use crate::ast::{
-    Architecture, ArchitectureId, AstArena, BinaryOp, ConcurrentStmt, Decl, Entity, EntityId, Expr,
-    SequentialStmt, UnaryOp,
+    Architecture, AstArena, BinaryOp, ConcurrentStmt, ContextItem, Decl, Entity, Expr, SequentialStmt, UnaryOp,
 };
-use crate::elaborator::{ElaboratedDesign, ElaboratedSequentialStmt};
+use crate::elaborator::{ElaboratedDesign, ElaboratedSequentialStmt, LibraryRegistry};
 use crate::parser::Span;
 use crate::{
-    analyzer::{DeclRef, ScopeId, SemanticAnalyzer, SymbolId},
+    analyzer::{SemanticAnalyzer, SymbolId},
     elaborator::{
         ElaboratedArena, ElaboratedConcurrentAssignment, ElaboratedPort, ElaboratedProcess,
         ElaboratedSignal, Elaborator, ElaboratorError, Environment, EvaluatedExpr, EvaluatedValue,
@@ -29,6 +28,7 @@ impl<'a> Elaborator<'a> {
     pub fn elaborate_top(
         &mut self,
         top_entity_name: &str,
+        registry: &LibraryRegistry
     ) -> Result<ElaboratedDesign, ElaboratorError> {
         let entity = self
             .ast
@@ -46,11 +46,14 @@ impl<'a> Elaborator<'a> {
                 span_text == top_entity_name
             })
             .ok_or_else(|| ElaboratorError::ArchitectureNotFound(top_entity_name.to_string()))?;
-
-        let mut env = Environment::new();
-        let top_sym = self.get_symbol(top_entity_name);
+        
+        
+        let mut top_env = Environment::new();
+        self.elaborate_context_items(&mut top_env, registry)?;
+        
+        let top_sym = self.get_symbol_unw(top_entity_name);
         let top_inst_id =
-            self.elaborate_instance(top_sym, entity, arch, &HashMap::new(), "top", &mut env)?;
+            self.elaborate_instance(top_sym, entity, arch, &HashMap::new(), "top", &mut top_env)?;
 
         let top_node = self.arena.instances[top_inst_id.0 as usize].clone();
         Ok(ElaboratedDesign {
@@ -138,8 +141,8 @@ impl<'a> Elaborator<'a> {
 
         let node = InstanceNode {
             instance_name,
-            entity_name: self.get_symbol(entity.name),
-            architecture_name: self.get_symbol(arch.name),
+            entity_name: self.get_symbol_unw(entity.name),
+            architecture_name: self.get_symbol_unw(arch.name),
             hierarchical_path: path.to_string(),
             generics: evaluated_generics,
             ports,
@@ -174,7 +177,7 @@ impl<'a> Elaborator<'a> {
                 ..
             } = decl
             {
-                let sym = self.get_symbol(name);
+                let sym = self.get_symbol_unw(name);
                 let val = if let Some(val_override) = overrides.get(&sym) {
                     val_override.clone()
                 } else if let Some(expr_id) = default_val {
@@ -203,7 +206,7 @@ impl<'a> Elaborator<'a> {
             &self.ast.ports[entity.ports_start.0 as usize..entity.ports_end.0 as usize];
 
         for port in port_slice {
-            let sym = self.get_symbol(port.name);
+            let sym = self.get_symbol_unw(port.name);
             let sig_id = self.arena.alloc_signal(ElaboratedSignal {
                 name: sym,
                 type_id: TypeId(0), // Populated via SA resolution
@@ -234,7 +237,7 @@ impl<'a> Elaborator<'a> {
         for decl in decl_slice {
             match decl {
                 Decl::Signal { name, .. } => {
-                    let sym = self.get_symbol(name);
+                    let sym = self.get_symbol_unw(name);
                     let sig_id = self.arena.alloc_signal(ElaboratedSignal {
                         name: sym,
                         type_id: TypeId(0), //TODO
@@ -249,7 +252,7 @@ impl<'a> Elaborator<'a> {
                     name, default_val, ..
                 } => {
                     if let Some(expr_id) = default_val {
-                        let sym = self.get_symbol(name);
+                        let sym = self.get_symbol_unw(name);
                         let val = self.eval_const_expr(*expr_id, env)?;
                         env.insert_constant(sym, val);
                     }
@@ -269,7 +272,7 @@ impl<'a> Elaborator<'a> {
         stmts_range: std::ops::Range<u32>,
         env: &Environment,
     ) -> Result<ProcessId, ElaboratorError> {
-        let proc_sym = self.get_symbol(label);
+        let proc_sym = self.get_symbol_unw(label);
         let mut sens_ids = Vec::new();
         for sens in sensitivities {
             sens_ids.push(self.resolve_expr_signal(*sens, env)?);
@@ -330,7 +333,7 @@ impl<'a> Elaborator<'a> {
         else_branch: Option<crate::ast::ExprId>,
         env: &Environment,
     ) -> Result<ElaboratedProcess, ElaboratorError> {
-        let proc_sym = self.get_symbol("cond_assign_proc");
+        let proc_sym = self.get_symbol_unw("cond_assign_proc");
         let mut stmts = Vec::new();
 
         let mut current_else: Option<Vec<ElaboratedSequentialStmt>> =
@@ -405,7 +408,7 @@ impl<'a> Elaborator<'a> {
         }
 
         let child_path = format!("{}/{}", parent_path, label);
-        let inst_sym = self.get_symbol(label);
+        let inst_sym = self.get_symbol_unw(label);
 
         let child_id = self.elaborate_instance(
             inst_sym,
@@ -451,7 +454,7 @@ impl<'a> Elaborator<'a> {
                 }
             }
             Expr::Identifier { name, .. } => {
-                let sym = self.get_symbol(name);
+                let sym = self.get_symbol_unw(name);
                 if let Some(val) = env.lookup_constant(sym) {
                     Ok(val.clone())
                 } else {
@@ -531,7 +534,7 @@ impl<'a> Elaborator<'a> {
                 EvaluatedExpr::Literal(val)
             }
             Expr::Identifier { name, .. } => {
-                let sym = self.get_symbol(name);
+                let sym = self.get_symbol_unw(name);
                 if let Some(sig_id) = env.lookup_signal(sym) {
                     EvaluatedExpr::SignalRead(sig_id)
                 } else if let Some(val) = env.lookup_constant(sym) {
@@ -579,7 +582,7 @@ impl<'a> Elaborator<'a> {
     ) -> Result<SymbolId, ElaboratorError> {
         let expr = &self.ast.exprs[expr_id.0 as usize];
         match expr {
-            Expr::Identifier { name, .. } => Ok(self.get_symbol(name)),
+            Expr::Identifier { name, .. } => Ok(self.get_symbol_unw(name)),
             _ => Err(ElaboratorError::EvaluationFailed {
                 reason: "Expected identifier expression".into(),
                 span: expr.span(),
@@ -587,11 +590,111 @@ impl<'a> Elaborator<'a> {
         }
     }
 
-    fn get_symbol(&self, name: &str) -> SymbolId {
+    /// Processes top-level AST context items (`library ...; use ...;`)
+    pub fn elaborate_context_items(
+        &mut self,
+        env: &mut Environment,
+        registry: &LibraryRegistry,
+    ) -> Result<(), ElaboratorError> {
+        for item in &self.ast.contexts {
+            match item {
+                ContextItem::Library { name } => {
+                    // Ensures the referenced library symbol is known in the interner
+                    let lib_sym = self.get_symbol(name).ok_or_else(|| {
+                        ElaboratorError::EvaluationFailed {
+                            reason: format!("Unknown library '{}'", name),
+                            span: Span { start: 0, end: 0 }, // TODO correct span
+                        }
+                    })?;
+                    dbg!("AAAA");
+
+                    // Special-case handling for standard libraries or work aliases
+                    if name.eq_ignore_ascii_case("std") || name.eq_ignore_ascii_case("ieee") {
+                        // Core types (std_logic, integer, etc.) are pre-loaded in SemanticAnalyzer
+                        continue;
+                    }
+
+                    if !registry.libraries.contains_key(&name.to_lowercase())
+                        && !name.eq_ignore_ascii_case("work")
+                    {
+                        return Err(ElaboratorError::EvaluationFailed {
+                            reason: format!("Library '{}' was referenced but not loaded", name),
+                            span: Span { start: 0, end: 0 }, // TODO correct span
+                        });
+                    }
+                }
+                ContextItem::Use { path } => {
+                    self.elaborate_use_clause(path, env, registry)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn elaborate_use_clause(
+    &mut self,
+    path: &str,
+    env: &mut Environment,
+    registry: &LibraryRegistry,
+) -> Result<(), ElaboratorError> {
+    let parts: Vec<&str> = path.split('.').collect();
+    if parts.len() < 2 {
+        return Err(ElaboratorError::EvaluationFailed {
+            reason: format!("Malformed use clause path: '{}'", path),
+            span: Span { start: 0, end: 0 },
+        });
+    }
+
+    // Normalize case (VHDL is case-insensitive)
+    let lib_name = parts[0].to_lowercase();
+    let pkg_name = parts[1].to_lowercase();
+    let selector = parts.get(2).copied().unwrap_or("all");
+
+    if lib_name == "ieee" || lib_name == "std" {
+        return Ok(());
+    }
+    
+
+    // Direct string lookup on registry (assuming LibraryRegistry uses HashMap<String, Library>)
+    let pkg_exports = registry.get_package(&lib_name, &pkg_name).ok_or_else(|| {
+        ElaboratorError::EvaluationFailed {
+            reason: format!("Package '{}.{}' not found in registry", lib_name, pkg_name),
+            span: Span { start: 0, end: 0 },
+        }
+    })?;
+
+    if selector.eq_ignore_ascii_case("all") {
+        env.import_package(pkg_exports);
+    } else {
+        let item_sym = self.sa.symbols.interner.get_symbol(&selector.to_lowercase()).ok_or_else(|| {
+            ElaboratorError::EvaluationFailed {
+                reason: format!("Item '{}' not found in symbol interner", selector),
+                span: Span { start: 0, end: 0 },
+            }
+        })?;
+
+        if !env.import_package_item(pkg_exports, item_sym) {
+            return Err(ElaboratorError::EvaluationFailed {
+                reason: format!("Symbol '{}' does not exist in '{}.{}'", selector, lib_name, pkg_name),
+                span: Span { start: 0, end: 0 },
+            });
+        }
+    }
+
+    Ok(())
+}
+
+    fn get_symbol_unw(&self, name: &str) -> SymbolId {
         self.sa
             .symbols
             .interner
             .get_symbol(name)
             .expect(&format!("If semantic analysis passed, this shouldn't panic. Panicked on {}",name))
+    }
+    fn get_symbol(&self, name: &str) -> Option<SymbolId> {
+        self.sa
+            .symbols
+            .interner
+            .get_symbol(name)
     }
 }

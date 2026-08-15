@@ -1,8 +1,9 @@
 #![doc = include_str!("../README.md")]
 
-use std::{fmt::Write, process::Command};
 use std::fs;
+use std::{fmt::Write, process::Command};
 
+use crate::elaborator::LibraryRegistry;
 use crate::{
     analyzer::{SemanticAnalyzer, SymbolTable},
     elaborator::Elaborator,
@@ -41,8 +42,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     println!("=== Parsed AST ===\n{}", ast_dump);
 
-    let mut sa = SemanticAnalyzer::new(&parser.arena, SymbolTable::new(), &source_string);
-    sa.analyze_all();
+    let mut s_table = SymbolTable::new();
+    let registry = LibraryRegistry::initialize_builtins(&mut s_table.interner);
+
+    let mut sa = SemanticAnalyzer::new(&parser.arena, s_table, &source_string, &registry);
+    sa.analyze_all(&registry);
 
     if !sa.errors.is_empty() {
         eprintln!(
@@ -60,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let top_entity_ast = ast.entities.first().ok_or("No entity found in AST")?;
 
-    let top_instance = match elaborator.elaborate_top(top_entity_ast.name) {
+    let top_instance = match elaborator.elaborate_top(top_entity_ast.name, &registry) {
         Ok(inst) => inst,
         Err(err) => {
             eprintln!("Elaboration Error: {:?}", err);
@@ -96,23 +100,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //         indent: 0
     //     };
     // println!("{format}");
-
 }
 
-fn run_ghdl_validation(file_path: &str, top_entity: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn run_ghdl_validation(
+    file_path: &str,
+    top_entity: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("[GHDL Verification] Analyzing elaborated code...");
 
-    let analyze_status = Command::new("ghdl")
-        .args(["-a", file_path])
-        .status()?;
+    let analyze_status = Command::new("ghdl").args(["-a", file_path]).status()?;
 
     if !analyze_status.success() {
         return Err("Original GHDL failed to parse/analyze output of rghdl elaborator!".into());
     }
 
-    let synth_status = Command::new("ghdl")
-        .args(["-e", top_entity])
-        .status()?;
+    let synth_status = Command::new("ghdl").args(["-e", top_entity]).status()?;
 
     if !synth_status.success() {
         return Err("Original GHDL failed to elaborate output of rghdl elaborator!".into());

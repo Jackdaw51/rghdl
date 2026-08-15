@@ -13,11 +13,16 @@ impl Debug for SymbolTable {
     }
 }
 impl SymbolTable {
+    // Creates a new symbol table with core library already injected
     pub fn new() -> Self {
-        Self {
+        let mut symbols = Self {
             scopes: ScopeArena::default(),
             interner: SymbolInterner::default(),
-        }
+        };
+        let _sym_ieee = symbols.interner.get_or_internalize("ieee");
+        let _sym_std  = symbols.interner.get_or_internalize("std");
+        let _sym_work = symbols.interner.get_or_internalize("work");
+        symbols
     }
 
     /// Inserts a declaration into a specific scope. Returns `Err` if symbol was already defined in the current scope.
