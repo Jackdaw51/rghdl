@@ -14,4 +14,3 @@ begin
     z <= a and b;
 end architecture dataflow;
 -- test line comment
-/**/

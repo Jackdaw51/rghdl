@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::analyzer::{TypeArena, TypeId, TypeKind};
 
 impl TypeId {
@@ -21,5 +23,12 @@ impl TypeArena {
             return None;
         }
         self.types.get(id.0 as usize)
+    }
+}
+impl Display for TypeArena{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for i in &self.types{
+        }
+        todo!()
     }
 }

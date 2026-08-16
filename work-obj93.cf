@@ -1,4 +1,13 @@
 v 4
-file . "test_files/elaborated_out.vhd" "41e91cd0912e9cc6ce4fe5f7b316afcfce52d6a5" "20260815172113.002":
-  entity and_gate at 1( 0) + 0 on 15;
-  architecture dataflow of and_gate at 9( 97) + 0 on 16;
+file . "test_files/tb_equiv.vhd" "50e1d2496882751be35bf0be2eca9782a208ceb8" "20260816140922.310":
+  entity tb_equiv at 1( 0) + 0 on 51;
+  architecture behavioral of tb_equiv at 7( 85) + 0 on 52;
+file . "test_files/and_gate_flat.vhd" "1bfba0ec481da9c5e65a476e3cc66c565a0ca8fa" "20260816140922.309":
+  entity and_gate_flat at 1( 0) + 0 on 49;
+  architecture dataflow of and_gate_flat at 11( 156) + 0 on 50;
+file . "test_files/and_gate.vhd" "7f5c92a401c578b6d47e1c81f2c2eaedaf803d8a" "20260816140922.308":
+  entity and_gate at 1( 0) + 0 on 47;
+  architecture dataflow of and_gate at 12( 181) + 0 on 48;
+file . "test_files/and_gate_flattened.vhd" "7b85d634edaf2749bb8a90bf81f6a479219596dd" "20260815225812.582":
+  entity and_gate_flattened at 1( 0) + 0 on 21;
+  architecture dataflow of and_gate_flattened at 9( 117) + 0 on 22;

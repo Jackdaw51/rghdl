@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     analyzer::TypeKind,
+    ast::ContextItem,
     elaborator::{
         ElaboratedConcurrentAssignment, ElaboratedDesign, ElaboratedProcess,
         ElaboratedSequentialStmt, EvaluatedExpr, EvaluatedValue, InstanceNode,
@@ -143,12 +144,27 @@ impl<'a> Display for ElaboratedFormatCtx<'a, InstanceNode> {
             writeln!(f, "{}", self.child(child_node))?;
         }
 
-        let unique_entity_name = if inst.hierarchical_path == "top" {
-            // Preserve exact top-level entity name for GHDL validation
-            self.sa.symbols.interner.get(inst.entity_name).to_string()
+        // let unique_entity_name = if inst.hierarchical_path == "top" {
+        //     // Preserve exact top-level entity name for GHDL validation
+        //     self.sa.symbols.interner.get(inst.entity_name).to_string()
+        // } else {
+        //     format!("{}_{}", self.sym(inst.entity_name), inst.instance_name.0)
+        // };
+        // let unique_entity_name = format!("{}_{}", self.sym(inst.entity_name), inst.instance_name.0);
+        let unique_entity_name = format!("{}_flat", self.sym(inst.entity_name));
+
+        if !self.sa.ast.contexts.is_empty() {
+            for ctx in &self.sa.ast.contexts {
+                match ctx {
+                    ContextItem::Library { name } => writeln!(f, "library {};", name)?,
+                    ContextItem::Use { path } => writeln!(f, "use {};", path)?,
+                }
+            }
         } else {
-            format!("{}_{}", self.sym(inst.entity_name), inst.instance_name.0)
-        };
+            // SHOULD be that they are always included
+            writeln!(f, "library ieee;")?;
+            writeln!(f, "use ieee.std_logic_1164.all;")?;
+        }
 
         writeln!(f, "entity {} is", unique_entity_name)?;
         if !inst.ports.is_empty() {
@@ -157,6 +173,8 @@ impl<'a> Display for ElaboratedFormatCtx<'a, InstanceNode> {
                 let term = if i == inst.ports.len() - 1 { "" } else { ";" };
                 // When got to this point should be safe to unwrap
                 let a = self.sa.types.get(port.type_id).unwrap();
+                dbg!(&self.sa.types);
+                dbg!(port.type_id);
                 writeln!(
                     f,
                     "\t\t{}: {:?} {}{}",
