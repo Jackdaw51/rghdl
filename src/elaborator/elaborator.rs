@@ -122,7 +122,9 @@ impl<'a> Elaborator<'a> {
                 ConcurrentStmt::ComponentInstantiation {
                     label,
                     component_name,
-                    port_map_span,
+                    arch_qualifier,
+                    generic_map,
+                    port_map,
                 } => {
                     //Something like this
                     // let child_id = self.elaborate_component_instantiation(

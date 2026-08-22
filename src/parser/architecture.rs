@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use super::Parser;
-use crate::ast::{ConcurrentStmt, ElsifBranch, Expr, SequentialStmt};
+use crate::ast::{Association, ConcurrentStmt, ElsifBranch, Expr, SequentialStmt};
 use crate::exp_tks;
 use crate::parser::{ParseResult, Token, TokenKind};
 
@@ -166,8 +166,6 @@ impl<'a> Parser<'a> {
             // TODO Component instantiations like `u0: gate_type port map(...)``
         }
 
-        // Parse the Target Expression
-        // This handles `clk`, `data_bus(7)`, `sys.status` etc
         let target_expr = self.parse_target_expression()?;
 
         let next_tok = self.advance();
@@ -188,8 +186,8 @@ impl<'a> Parser<'a> {
             // The Pratt parser parsed `my_component` as `target_expr` (Expr::Identifier).
             TokenKind::KwPort | TokenKind::KwGeneric => {
                 let comp_name = match self.arena.exprs.get(target_expr.0 as usize) {
-                    Some(Expr::Identifier { name, .. }) => name,
-                    _ => "",
+                    Some(Expr::Identifier { span ,..}) => *span,
+                    _ => todo!(),
                 };
                 self.parse_component_instantiation_body(comp_name, next_tok, label)
             }
@@ -491,103 +489,116 @@ impl<'a> Parser<'a> {
             end_span = name_tok.span;
         }
 
-        let entity_span = Span {
+        let component_name = Span {
             start: start_tok.span.start,
             end: end_span.end,
         };
-        let component_name = self.get_text(entity_span);
 
         // Handles optional architecture qualifier: entity work.gate(rtl)
-        if self.next_is(TokenKind::LParen) {
+        let arch_qualifier = if self.next_is(TokenKind::LParen) {
             self.advance();
-            self.expect(TokenKind::Identifier)?;
+            let arch_tok = self.expect(TokenKind::Identifier)?;
             self.expect(TokenKind::RParen)?;
-        }
+            Some(arch_tok.span)
+        } else {
+            None
+        };
 
         // Optional generic map
-        if self.next_is(TokenKind::KwGeneric) {
+        let generic_map = if self.next_is(TokenKind::KwGeneric) {
             self.advance();
             self.expect(TokenKind::KwMap)?;
-            self.expect(TokenKind::LParen)?;
-            let _ = self.slice_until_depth_zero(&[TokenKind::RParen])?;
-            self.expect(TokenKind::RParen)?;
-        }
+            self.parse_association_list()?
+        } else {
+            0..0
+        };
 
         // Mandatory port map
         self.expect(TokenKind::KwPort)?;
         self.expect(TokenKind::KwMap)?;
-        let map_start = self.expect(TokenKind::LParen)?.span;
-        let _ = self.slice_until_depth_zero(&[TokenKind::RParen])?;
-        let map_end = self.expect(TokenKind::RParen)?.span;
+        let port_map = self.parse_association_list()?;
         self.expect(TokenKind::Semicolon)?;
 
-        let port_map_span = Span {
-            start: map_start.start,
-            end: map_end.end,
-        };
-
-        let label_str = label.map(|lbl| self.get_text(lbl)).unwrap_or("");
-
         Ok(ConcurrentStmt::ComponentInstantiation {
-            label: label_str,
+            label,
             component_name,
-            port_map_span,
+            arch_qualifier,
+            generic_map,
+            port_map,
         })
     }
+
+    fn parse_association_list(&mut self) -> ParseResult<Range<u32>> {
+        self.expect(TokenKind::LParen)?;
+        let start_idx = self.arena.associations.len() as u32;
+
+        while !self.next_is(TokenKind::RParen) && self.not_eof() {
+            let first_expr = self.parse_target_expression()?;
+
+            let assoc = if self.next_is(TokenKind::OpArrow) {
+                self.advance(); // consume '=>'
+                let actual = self.parse_expression()?;
+                Association {
+                    formal: Some(first_expr),
+                    actual,
+                }
+            } else {
+                // Positional mapping
+                Association {
+                    formal: None,
+                    actual: first_expr,
+                }
+            };
+            dbg!(assoc.clone(),self.arena.expr(first_expr));
+            self.arena.associations.push(assoc);
+
+            if self.next_is(TokenKind::Comma) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        self.expect(TokenKind::RParen)?;
+        let end_idx = self.arena.associations.len() as u32;
+
+        Ok(start_idx..end_idx)
+    }
+
     fn parse_component_instantiation_body(
         &mut self,
-        component_name: &'a str,
+        component_name: Span,
         first_tok: Token,
         label: Option<Span>,
     ) -> ParseResult<ConcurrentStmt<'a>> {
-        let mut current_tok_kind = first_tok.kind;
+        let mut generic_map = 0..0;
 
-        // Handles generic map if present
-        if current_tok_kind == TokenKind::KwGeneric {
+        if first_tok.kind == TokenKind::KwGeneric {
             self.expect(TokenKind::KwMap)?;
-            self.expect(TokenKind::LParen)?;
-            let _ = self.slice_until_depth_zero(&[TokenKind::RParen])?;
-            self.expect(TokenKind::RParen)?;
+            generic_map = self.parse_association_list()?;
 
-            let next = self.advance();
-            current_tok_kind = next.kind;
-        }
-
-        // Handles port map
-        if current_tok_kind == TokenKind::KwPort {
-            self.expect(TokenKind::KwMap)?;
-            let map_start = self.expect(TokenKind::LParen)?.span;
-            let _ = self.slice_until_depth_zero(&[TokenKind::RParen])?;
-            let map_end = self.expect(TokenKind::RParen)?.span;
-            self.expect(TokenKind::Semicolon)?;
-
-            let port_map_span = Span {
-                start: map_start.start,
-                end: map_end.end,
-            };
-
-            let label_str = label.map(|lbl| self.get_text(lbl)).unwrap_or("");
-
-            Ok(ConcurrentStmt::ComponentInstantiation {
-                label: label_str,
-                component_name,
-                port_map_span,
-            })
-        } else {
+            // After generic map, port map is required in component instantiations
+            self.expect(TokenKind::KwPort)?;
+        } else if first_tok.kind != TokenKind::KwPort {
             exp_tks!(
-                current_tok_kind,
+                first_tok.kind,
                 first_tok.span,
                 TokenKind::KwPort,
                 TokenKind::KwGeneric
-            )
+            );
         }
-    }
-    fn parse_component_instantiation(
-        &mut self,
-        component_name: &'a str,
-        label: Option<Span>,
-    ) -> ParseResult<ConcurrentStmt<'a>> {
-        let first_tok = self.advance();
-        self.parse_component_instantiation_body(component_name, first_tok, label)
+
+        // Required port map (KwPort was either consumed above or passed as first_tok)
+        self.expect(TokenKind::KwMap)?;
+        let port_map = self.parse_association_list()?;
+        self.expect(TokenKind::Semicolon)?;
+
+        Ok(ConcurrentStmt::ComponentInstantiation {
+            label,
+            component_name,
+            arch_qualifier: None, // Standard component instantiations do not specify architectures directly
+            generic_map,
+            port_map,
+        })
     }
 }

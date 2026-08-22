@@ -203,6 +203,14 @@ pub enum SequentialStmt<'a> {
 }
 
 #[derive(Debug, Clone)]
+pub struct Association {
+    /// `Some(expr)` for named mapping (`A => sig`), `None` for positional mapping (`sig`)
+    pub formal: Option<ExprId>, 
+    /// The signal or expression being mapped (`sig`, `open`, `a and b`)
+    pub actual: ExprId,
+}
+
+#[derive(Debug, Clone)]
 pub enum ConcurrentStmt<'a> {
     ConcurrentAssignment {
         label: Option<Span>, // cause for some reason concurrent assignment can have a label `my_label : data_bus(0) <= '1'``
@@ -217,9 +225,11 @@ pub enum ConcurrentStmt<'a> {
 
     // u_gate: and_gate port map (A => in1, B => in2, Y => out_port);
     ComponentInstantiation {
-        label: &'a str,
-        component_name: &'a str,
-        port_map_span: Span,
+        label: Option<Span>,
+        component_name: Span,
+        arch_qualifier: Option<Span>, // Like (rtl)
+        generic_map:Range<u32>,
+        port_map:Range<u32>
     },
 
     // My_Process: process(clk) begin ... end process;
@@ -253,6 +263,7 @@ pub struct AstArena<'a> {
     pub decls: Vec<Decl<'a>>,
     pub architectures: Vec<Architecture<'a>>,
     pub elsifs: Vec<ElsifBranch>, // Will HAve to have an indirection table as well TODO
+    pub associations: Vec<Association>,
 
     pub sequential_stmts: Vec<SequentialStmt<'a>>,
     pub seq_stmt_lists: Vec<SeqStmtId>,

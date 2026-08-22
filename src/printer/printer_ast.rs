@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::ops::Range;
 
 use crate::ast::{
     AstArena, ConcurrentStmt, ContextItem, Decl, ElsifBranch, Entity, Expr, Port, PortId,
@@ -85,8 +86,13 @@ impl<'a> Display for FormatCtx<'a, Expr<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.item {
             Expr::Literal { text, span: _ } => write!(f, "{}", text),
-            Expr::Identifier { name, span: _ } => write!(f, "{}", name),
-            Expr::Binary { op, lhs, rhs, span: _ } => {
+            Expr::Identifier { span,.. } => write!(f, "{}", self.get_text(*span)),
+            Expr::Binary {
+                op,
+                lhs,
+                rhs,
+                span: _,
+            } => {
                 write!(
                     f,
                     "{} {} {}",
@@ -105,7 +111,11 @@ impl<'a> Display for FormatCtx<'a, Expr<'a>> {
             Expr::Grouping { expr, span: _ } => {
                 write!(f, "({})", self.child(self.get_expr(*expr)))
             }
-            Expr::CallOrIndex { callee: _, args: _, span } => {
+            Expr::CallOrIndex {
+                callee: _,
+                args: _,
+                span,
+            } => {
                 write!(f, "{}", self.get_text(*span))
             }
             Expr::Others { span: _ } => write!(f, "others"),
@@ -158,14 +168,30 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt<'a>> {
             ConcurrentStmt::ComponentInstantiation {
                 label,
                 component_name,
-                port_map_span,
-            } => writeln!(
-                f,
-                "{}: {} port map {};",
-                label,
-                component_name,
-                self.get_text(*port_map_span)
-            ),
+                arch_qualifier,
+                generic_map,
+                port_map,
+            } => {
+                if let Some(lbl) = label {
+                    write!(f, "{}: ", self.get_text(*lbl))?;
+                }
+
+                write!(f, "{}", self.get_text(*component_name))?;
+
+                if let Some(arch) = arch_qualifier {
+                    write!(f, "({})", self.get_text(*arch))?;
+                }
+
+                if !generic_map.is_empty() {
+                    write!(f, " generic map ")?;
+                    self.fmt_association_list(f, generic_map.clone())?;
+                }
+
+                dbg!(port_map);
+                self.fmt_association_list(f, port_map.clone())?;
+
+                writeln!(f, ";")
+            }
             ConcurrentStmt::Process {
                 label,
                 stmts,
@@ -379,5 +405,31 @@ impl<'a, T> FormatCtx<'a, T> {
             writeln!(f)?;
         }
         writeln!(f, "\t{});", self.pad())
+    }
+    fn fmt_association_list(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        range: Range<u32>,
+    ) -> std::fmt::Result {
+        write!(f, "(")?;
+        let start = range.start as usize;
+        let end = range.end as usize;
+
+        for (i, assoc) in self.arena.associations[start..end].iter().enumerate() {
+            if i > 0 {
+                write!(f, ",\n")?;
+                dbg!(assoc);
+            }
+            // Named mapping: formal => actual
+            write!(f,"{}",self.pad())?;
+            if let Some(formal_id) = assoc.formal {
+                write!(f,"{}",self.child(self.arena.expr(formal_id)))?;
+                write!(f, " => ")?;
+            }
+            // Actual expression or positional argument
+            write!(f,"{}",self.child(self.arena.expr(assoc.actual)))?;
+        }
+
+        write!(f, ")")
     }
 }
