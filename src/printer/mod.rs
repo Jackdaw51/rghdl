@@ -12,7 +12,7 @@ pub struct FormatCtx<'a, T> {
     pub indent: usize,
 }
 impl<'a, T> FormatCtx<'a, T> {
-    fn get_text(&self, span: &Span) -> &'a str {
+    fn get_text(&self, span: Span) -> &'a str {
         &self.source[span.start..span.end]
     }
     fn child<U>(&self, item: &'a U) -> FormatCtx<'a, U> {
@@ -36,6 +36,20 @@ impl<'a, T> FormatCtx<'a, T> {
     }
     fn get_expr(&self, expr_id: ExprId) -> &Expr<'a> {
         &self.arena.exprs[expr_id.0 as usize]
+    }
+    
+    fn get_line_from_span(&self, span: Span) -> u32 {
+        let mut line = 1;
+        for (c, i) in self.source.as_bytes().iter().enumerate() {
+            if *i as char == '\n' {
+                line += 1;
+            }
+            if c == span.start {
+                break;
+            }
+        }
+
+        line
     }
 
     // let stmt_ctx = FormatCtx {

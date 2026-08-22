@@ -1,15 +1,12 @@
 use std::ops::Range;
 
 use super::Parser;
+use crate::ast::{ConcurrentStmt, ElsifBranch, Expr, SequentialStmt};
 use crate::exp_tks;
-use crate::parser::{ParseResult, TokenKind};
-use crate::ast::{ConcurrentStmt, ElsifBranch, SequentialStmt};
+use crate::parser::{ParseResult, Token, TokenKind};
 
-use crate::{
-    parser::ParseErrorKind,
-    parser::Span,
-};
 use crate::ast::{Architecture, ArchitectureId, Decl, DeclId};
+use crate::{parser::ParseErrorKind, parser::Span};
 
 impl<'a> Parser<'a> {
     /// Parses sequential statements until it hits a boundary token (end, elsif, else).
@@ -151,11 +148,10 @@ impl<'a> Parser<'a> {
         }
 
         let mut label: Option<Span> = None;
-        if self.next_is(TokenKind::Identifier) && self.next_is(TokenKind::Colon) {
+        if self.next_is(TokenKind::Identifier) && self.lexer.peek_next().kind == TokenKind::Colon {
             let label_tok = self.advance();
-            self.advance();
+            let a = self.advance();
             label = Some(label_tok.span);
-
             // label : process
             if self.next_is(TokenKind::KwProcess) {
                 self.advance();
@@ -164,7 +160,7 @@ impl<'a> Parser<'a> {
 
             // u0: entity work.gate
             if self.next_is(TokenKind::KwEntity) {
-                return self.parse_direct_entity_instantiation();
+                return self.parse_direct_entity_instantiation(label);
             }
 
             // TODO Component instantiations like `u0: gate_type port map(...)``
@@ -190,7 +186,13 @@ impl<'a> Parser<'a> {
 
             // Component Instantiation (`u1: my_component generic map(...) port map(...);`)
             // The Pratt parser parsed `my_component` as `target_expr` (Expr::Identifier).
-            TokenKind::KwPort | TokenKind::KwGeneric => self.parse_component_instantiation_body(),
+            TokenKind::KwPort | TokenKind::KwGeneric => {
+                let comp_name = match self.arena.exprs.get(target_expr.0 as usize) {
+                    Some(Expr::Identifier { name, .. }) => name,
+                    _ => "",
+                };
+                self.parse_component_instantiation_body(comp_name, next_tok, label)
+            }
 
             x => exp_tks!(
                 x,
@@ -223,7 +225,7 @@ impl<'a> Parser<'a> {
     }
     /// Only handles `signal identifier_1,identifier_n : subtype;`
     /// scv = signal, constant, variable
-    fn parse_scv_declaration(&mut self, t: TokenKind) -> ParseResult<()> {
+    fn parse_scv_declaration(&mut self, token_kind: TokenKind) -> ParseResult<()> {
         let mut names = vec![];
         let name_tok = self.expect(TokenKind::Identifier)?;
         names.push(self.get_text(name_tok.span));
@@ -248,7 +250,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::Semicolon)?;
 
         for name in names {
-            let decl = match t {
+            let decl = match token_kind {
                 TokenKind::KwSignal => Decl::Signal {
                     name,
                     decl_type,
@@ -276,21 +278,32 @@ impl<'a> Parser<'a> {
 
         if self.next_is(TokenKind::LParen) {
             let start = self.advance().span.start;
-            while !self.next_is(TokenKind::RParen) {
+            while !self.next_is(TokenKind::RParen) && self.not_eof() {
                 self.advance();
             }
             let end = self.expect(TokenKind::RParen)?.span.end;
             process_vars = Some(self.get_text(Span { start, end }));
         }
+        //Optional is
+        if self.next_is(TokenKind::KwIs) {
+            self.advance();
+        };
 
+        while !self.next_is(TokenKind::KwBegin) && self.not_eof() {
+            self.advance();
+            self.parse_scv_declaration(TokenKind::KwVariable)?;
+        }
         self.expect(TokenKind::KwBegin)?;
 
         let stmts = self.parse_sequential_block()?;
 
-        self.expect(TokenKind::KwEnd)?;
+        let a = self.expect(TokenKind::KwEnd)?;
+
+        dbg!(a);
 
         // Handle optional "end process;" or "end process label;"
         if self.next_is(TokenKind::KwProcess) {
+            dbg!("A");
             self.advance();
         }
 
@@ -311,6 +324,8 @@ impl<'a> Parser<'a> {
             }
             l = Some(self.get_text(lbl));
         }
+
+        dbg!("last");
 
         self.expect(TokenKind::Semicolon)?;
 
@@ -412,6 +427,7 @@ impl<'a> Parser<'a> {
         }
     }
     fn parse_if_statement(&mut self) -> ParseResult<SequentialStmt<'a>> {
+        dbg!("hellooo");
         self.advance();
 
         let condition = self.parse_expression()?;
@@ -459,17 +475,119 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_direct_entity_instantiation(&self) -> ParseResult<ConcurrentStmt<'a>> {
-        todo!()
-    }
+    fn parse_direct_entity_instantiation(
+        &mut self,
+        label: Option<Span>,
+    ) -> ParseResult<ConcurrentStmt<'a>> {
+        self.expect(TokenKind::KwEntity)?;
 
-    fn parse_component_instantiation_body(&self) -> ParseResult<ConcurrentStmt<'a>> {
-        todo!()
+        // Parses "work.gate" or bare "gate"
+        let start_tok = self.expect(TokenKind::Identifier)?;
+        let mut end_span = start_tok.span;
+
+        if self.next_is(TokenKind::Dot) {
+            self.advance();
+            let name_tok = self.expect(TokenKind::Identifier)?;
+            end_span = name_tok.span;
+        }
+
+        let entity_span = Span {
+            start: start_tok.span.start,
+            end: end_span.end,
+        };
+        let component_name = self.get_text(entity_span);
+
+        // Handles optional architecture qualifier: entity work.gate(rtl)
+        if self.next_is(TokenKind::LParen) {
+            self.advance();
+            self.expect(TokenKind::Identifier)?;
+            self.expect(TokenKind::RParen)?;
+        }
+
+        // Optional generic map
+        if self.next_is(TokenKind::KwGeneric) {
+            self.advance();
+            self.expect(TokenKind::KwMap)?;
+            self.expect(TokenKind::LParen)?;
+            let _ = self.slice_until_depth_zero(&[TokenKind::RParen])?;
+            self.expect(TokenKind::RParen)?;
+        }
+
+        // Mandatory port map
+        self.expect(TokenKind::KwPort)?;
+        self.expect(TokenKind::KwMap)?;
+        let map_start = self.expect(TokenKind::LParen)?.span;
+        let _ = self.slice_until_depth_zero(&[TokenKind::RParen])?;
+        let map_end = self.expect(TokenKind::RParen)?.span;
+        self.expect(TokenKind::Semicolon)?;
+
+        let port_map_span = Span {
+            start: map_start.start,
+            end: map_end.end,
+        };
+
+        let label_str = label.map(|lbl| self.get_text(lbl)).unwrap_or("");
+
+        Ok(ConcurrentStmt::ComponentInstantiation {
+            label: label_str,
+            component_name,
+            port_map_span,
+        })
+    }
+    fn parse_component_instantiation_body(
+        &mut self,
+        component_name: &'a str,
+        first_tok: Token,
+        label: Option<Span>,
+    ) -> ParseResult<ConcurrentStmt<'a>> {
+        let mut current_tok_kind = first_tok.kind;
+
+        // Handles generic map if present
+        if current_tok_kind == TokenKind::KwGeneric {
+            self.expect(TokenKind::KwMap)?;
+            self.expect(TokenKind::LParen)?;
+            let _ = self.slice_until_depth_zero(&[TokenKind::RParen])?;
+            self.expect(TokenKind::RParen)?;
+
+            let next = self.advance();
+            current_tok_kind = next.kind;
+        }
+
+        // Handles port map
+        if current_tok_kind == TokenKind::KwPort {
+            self.expect(TokenKind::KwMap)?;
+            let map_start = self.expect(TokenKind::LParen)?.span;
+            let _ = self.slice_until_depth_zero(&[TokenKind::RParen])?;
+            let map_end = self.expect(TokenKind::RParen)?.span;
+            self.expect(TokenKind::Semicolon)?;
+
+            let port_map_span = Span {
+                start: map_start.start,
+                end: map_end.end,
+            };
+
+            let label_str = label.map(|lbl| self.get_text(lbl)).unwrap_or("");
+
+            Ok(ConcurrentStmt::ComponentInstantiation {
+                label: label_str,
+                component_name,
+                port_map_span,
+            })
+        } else {
+            exp_tks!(
+                current_tok_kind,
+                first_tok.span,
+                TokenKind::KwPort,
+                TokenKind::KwGeneric
+            )
+        }
     }
     fn parse_component_instantiation(
-        &self,
-        identifier_name: &str,
+        &mut self,
+        component_name: &'a str,
+        label: Option<Span>,
     ) -> ParseResult<ConcurrentStmt<'a>> {
-        todo!()
+        let first_tok = self.advance();
+        self.parse_component_instantiation_body(component_name, first_tok, label)
     }
 }

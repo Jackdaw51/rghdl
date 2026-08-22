@@ -1,4 +1,4 @@
-use std::{iter::Peekable, str::Chars};
+use std::{fmt::Display, iter::Peekable, str::Chars};
 
 use crate::ast::AstArena;
 mod architecture;
@@ -64,6 +64,7 @@ pub enum TokenKind {
     KwNand,
     KwNor,
     KwAbs,
+    KwMap,
 
     // TODO * and /
     OpAssign,            // :=
@@ -79,6 +80,7 @@ pub enum TokenKind {
     OpMinus,             // -
     OpStar,              // *
     OpSlash,             // /
+    OpConcat,
     Colon,               // :
     Semicolon,           // ;
     Comma,               // ,
@@ -128,7 +130,83 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("nand", TokenKind::KwNand),
     ("nor", TokenKind::KwNor),
     ("abs", TokenKind::KwAbs),
+    ("map", TokenKind::KwMap),
 ];
+impl Display for TokenKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            TokenKind::Identifier => "Identifier",
+            TokenKind::Number => "Number",
+            TokenKind::StringLit => "String Literal",
+            TokenKind::CharLit => "Character Literal",
+            TokenKind::BitStringLit => "Bit String Literal",
+
+            TokenKind::KwEntity => "entity",
+            TokenKind::KwArchitecture => "architecture",
+            TokenKind::KwPackage => "package",
+            TokenKind::KwIs => "is",
+            TokenKind::KwPort => "port",
+            TokenKind::KwGeneric => "generic",
+            TokenKind::KwBegin => "begin",
+            TokenKind::KwEnd => "end",
+            TokenKind::KwProcess => "process",
+            TokenKind::KwIf => "if",
+            TokenKind::KwThen => "then",
+            TokenKind::KwElse => "else",
+            TokenKind::KwElsif => "elsif",
+            TokenKind::KwLibrary => "library",
+            TokenKind::KwUse => "use",
+            TokenKind::KwAll => "all",
+            TokenKind::KwIn => "in",
+            TokenKind::KwOut => "out",
+            TokenKind::KwInOut => "inout",
+            TokenKind::KwBuffer => "buffer",
+            TokenKind::KwOf => "of",
+            TokenKind::KwSignal => "signal",
+            TokenKind::KwConstant => "constant",
+            TokenKind::KwComponent => "component",
+            TokenKind::KwVariable => "variable",
+            TokenKind::KwNot => "not",
+            TokenKind::KwOthers => "others",
+            TokenKind::KwDownto => "downto",
+            TokenKind::KwTo => "to",
+            TokenKind::KwAnd => "and",
+            TokenKind::KwOr => "or",
+            TokenKind::KwXor => "xor",
+            TokenKind::KwNand => "nand",
+            TokenKind::KwNor => "nor",
+            TokenKind::KwAbs => "abs",
+            TokenKind::KwMap => "map",
+
+            TokenKind::OpAssign => ":=",
+            TokenKind::OpArrow => "=>",
+            TokenKind::OpSignalAssignOrLEq => "<=",
+            TokenKind::OpEq => "=",
+            TokenKind::OpNeq => "/=",
+            TokenKind::OpLt => "<",
+            TokenKind::OpGt => ">",
+            TokenKind::OpGeq => ">=",
+            TokenKind::OpBox => "<>",
+            TokenKind::OpPlus => "+",
+            TokenKind::OpMinus => "-",
+            TokenKind::OpStar => "*",
+            TokenKind::OpSlash => "/",
+
+            TokenKind::Colon => ":",
+            TokenKind::Semicolon => ";",
+            TokenKind::Comma => ",",
+            TokenKind::Dot => ".",
+            TokenKind::Tick => "'",
+            TokenKind::LParen => "(",
+            TokenKind::RParen => ")",
+
+            TokenKind::Eof => "<EOF>",
+            TokenKind::Error => "<ERROR>",
+            TokenKind::OpConcat => "&",
+        };
+        write!(f, "{}", s)
+    }
+}
 
 pub struct Lexer<'a> {
     source: &'a str,
@@ -167,7 +245,6 @@ pub struct ParseError {
     pub kind: ParseErrorKind,
     pub span: Span,
 }
-
 pub type ParseResult<T> = Result<T, ParseError>;
 
 /// Usage (found, span, expected[4])

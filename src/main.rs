@@ -19,7 +19,9 @@ mod parser;
 mod printer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = "test_files/and_gate.vhd";
+    // let path = "test_files/and_gate.vhd";
+    let path = "test_files/audio_testbench.vhd";
+    // let path = "test_files/sine_wave_440hz.vhd";
     let source_string = fs::read_to_string(path).expect("Not found");
     // let source_string = fs::read_to_string("test_files/custom_types_pkg.vhd").expect("Not found");
     // let source_string = fs::read_to_string("test_files/latch_inference.vhd").expect("Not found");
@@ -29,6 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut parser = Parser::new(&source_string);
     parser.parse();
+    dbg!("something");
 
     // Optional: Debug print parsed AST
     let mut ast_dump = String::new();
@@ -43,6 +46,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     )?;
     println!("=== Parsed AST ===\n{}", ast_dump);
+
+    return Ok(());
 
     let mut s_table = SymbolTable::new();
     let registry = LibraryRegistry::initialize_builtins(&mut s_table.interner);

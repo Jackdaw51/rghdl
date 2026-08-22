@@ -47,14 +47,14 @@ architecture Behavioral of sine_wave_440hz is
     signal rom_addr : integer range 0 to 255;
 
 
-    -- component square_wave_440hz
-    --     port (
-    --         clk : in std_logic;
-    --         ce_48k : in std_logic;
-    --         reset : in std_logic;
-    --         audio_out : out std_logic_vector (23 downto 0)
-    --     );
-    -- end component;
+    component square_wave_440hz
+        port (
+            clk : in std_logic;
+            ce_48k : in std_logic;
+            reset : in std_logic;
+            audio_out : out std_logic_vector (23 downto 0)
+        );
+    end component;
     signal a : std_logic;
     signal b : std_logic;
     signal x : std_logic;

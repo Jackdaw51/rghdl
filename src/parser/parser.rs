@@ -1,4 +1,5 @@
 use crate::ast::{AstArena, Port, PortId, PortMode};
+use crate::printer::FormatCtx;
 use crate::{
     exp_tks,
     parser::{Lexer, ParseError, ParseErrorKind, ParseResult, Parser, Span, Token, TokenKind},
@@ -17,7 +18,6 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse(&mut self) {
         loop {
             let next = self.lexer.peek();
-            println!("{:?}", next);
             match next.kind {
                 TokenKind::KwEntity => {
                     let res = self.parse_entity();
@@ -27,7 +27,16 @@ impl<'a> Parser<'a> {
                     match res {
                         Ok(x) => {}
                         Err(x) => {
-                            dbg!("Error in {}", x);
+                            println!(
+                                "{}",
+                                FormatCtx {
+                                    item: &x,
+                                    source: self.source,
+                                    arena: &self.arena,
+                                    indent: 0
+                                }
+                            );
+                            panic!();
                         }
                     }
                 }
@@ -76,7 +85,9 @@ impl<'a> Parser<'a> {
         Err(ParseError { kind, span })
     }
     pub(super) fn advance(&mut self) -> Token {
-        self.lexer.next()
+        let a = self.lexer.next();
+        dbg!(format!("{}",a.kind));
+        a
     }
     pub(super) fn expect(&mut self, expected: TokenKind) -> ParseResult<Token> {
         let token = self.advance();

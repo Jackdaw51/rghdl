@@ -173,8 +173,6 @@ impl<'a> Display for ElaboratedFormatCtx<'a, InstanceNode> {
                 let term = if i == inst.ports.len() - 1 { "" } else { ";" };
                 // When got to this point should be safe to unwrap
                 let a = self.sa.types.get(port.type_id).unwrap();
-                dbg!(&self.sa.types);
-                dbg!(port.type_id);
                 writeln!(
                     f,
                     "\t\t{}: {:?} {}{}",

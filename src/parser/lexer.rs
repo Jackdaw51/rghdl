@@ -18,7 +18,7 @@ impl<'a> Lexer<'a> {
             source,
             chars: source.chars().peekable(),
             current_pos: 0,
-            current_line: 0,
+            current_line: 1,
             cached_0: None,
             cached_1: None,
         }
@@ -38,8 +38,10 @@ impl<'a> Lexer<'a> {
             match ch {
                 'a'..='z' | 'A'..='Z' => self.identifier_or_keyword(start_pos),
                 '0'..='9' => self.number(start_pos),
-                ':' | '<' | '=' => self.two_char(start_pos),
-                ';' | '.' | '(' | ')' | ',' | '+' | '-' | '*' | '/' => self.single_digit(start_pos),
+                ':' | '<' | '='| '/' => self.two_char(start_pos),
+                ';' | '.' | '(' | ')' | ',' | '+' | '-' | '*' | '>' | '&' => {
+                    self.single_digit(start_pos)
+                }
                 '"' => self.string_lit(start_pos),
                 '\'' => self.tick_or_char_lit(start_pos),
                 x => self.unknown(x),
@@ -54,7 +56,7 @@ impl<'a> Lexer<'a> {
             }
         }
     }
-    
+
     /// Consumes the next character and updates the byte offset
     fn advance(&mut self) -> Option<char> {
         if let Some(ch) = self.chars.next() {
@@ -195,7 +197,11 @@ impl<'a> Lexer<'a> {
     }
 
     fn unknown(&self, c: char) -> Token {
-        panic!("unknown character '{}' at line {}", c, self.current_line);
+        panic!(
+            "unknown character '{}' at line {}",
+            c,
+            self.current_line + 1
+        );
     }
 
     fn single_digit(&mut self, start_pos: usize) -> Token {
@@ -215,6 +221,7 @@ impl<'a> Lexer<'a> {
                 '-' => TokenKind::OpMinus,
                 '*' => TokenKind::OpStar,
                 '/' => TokenKind::OpSlash,
+                '&' => TokenKind::OpConcat,
                 _ => unreachable!(),
             }
         }
@@ -371,6 +378,12 @@ impl<'a> Lexer<'a> {
         token
     }
     pub fn next(&mut self) -> Token {
+        if let Some(token) = self.cached_1.take(){
+            let a = self.cached_0.expect("cached 0 should exist when cached_1 is Some");
+            self.cached_0 = Some(token);
+            self.cached_1 = None;
+            return a;
+        }
         if let Some(token) = self.cached_0.take() {
             return token;
         }

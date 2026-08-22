@@ -198,21 +198,21 @@ begin
     --     end if;
     -- end process;
 
-    find_target_freq : process (clk_100_buffered)
-    begin
-        if rising_edge(clk_100_buffered) then
-            case sw_deb(5 downto 0) is
-                when "000001" => target_freq <= 82; -- E2
-                when "000010" => target_freq <= 110; -- A2
-                when "000100" => target_freq <= 147; -- D3
-                when "001000" => target_freq <= 196; -- G3
-                when "010000" => target_freq <= 247; -- B3
-                when "100000" => target_freq <= 330; -- E4
-                when others => target_freq <= 0;
-            end case;
+    -- find_target_freq : process (clk_100_buffered)
+    -- begin
+    --     if rising_edge(clk_100_buffered) then
+    --         case sw_deb(5 downto 0) is
+    --             when "000001" => target_freq <= 82; -- E2
+    --             when "000010" => target_freq <= 110; -- A2
+    --             when "000100" => target_freq <= 147; -- D3
+    --             when "001000" => target_freq <= 196; -- G3
+    --             when "010000" => target_freq <= 247; -- B3
+    --             when "100000" => target_freq <= 330; -- E4
+    --             when others => target_freq <= 0;
+    --         end case;
 
-        end if;
-    end process;
+    --     end if;
+    -- end process;
 
     gira_gira_lelica_romba_il_motor : process (clk_100_buffered)
         variable val : integer;
@@ -235,27 +235,26 @@ begin
                     led_out(7) <= '1';
                 end if;
             end if;
-
         end if;
     end process;
 
     -----------------------------------------------------
     -- TEST 2: loopback "line in" data to headphone output
-    loopback_proc : process (clk_100_buffered)
-    begin
-        if (clk_100_buffered'event and clk_100_buffered = '1') then
-            hphone_valid <= '0';
-            hphone_l <= (others => '0');
-            hphone_r <= (others => '0');
+    -- loopback_proc : process (clk_100_buffered)
+    -- begin
+    --     if (clk_100_buffered'event and clk_100_buffered = '1') then
+    --         hphone_valid <= '0';
+    --         hphone_l <= (others => '0');
+    --         hphone_r <= (others => '0');
 
-            if clean_reset = '0' and new_sample = '1' then
+    --         if clean_reset = '0' and new_sample = '1' then
 
-                hphone_valid <= '1';
-                hphone_l <= line_in_r;
-                hphone_r <= line_in_r;
-            end if;
-        end if;
-    end process;
+    --             hphone_valid <= '1';
+    --             hphone_l <= line_in_r;
+    --             hphone_r <= line_in_r;
+    --         end if;
+    --     end if;
+    -- end process;
 
     oled_data_proc : process (clk_100_buffered)
         variable counter : integer range 0 to 48000 := 48000;
