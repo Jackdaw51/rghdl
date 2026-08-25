@@ -21,6 +21,9 @@ impl<'a> Parser<'a> {
             match next.kind {
                 TokenKind::KwEntity => {
                     let res = self.parse_entity();
+                    if res.is_err() {
+                        println!("{:?}", res);
+                    }
                 }
                 TokenKind::KwArchitecture => {
                     let res = self.parse_architecture();
@@ -36,7 +39,6 @@ impl<'a> Parser<'a> {
                                     indent: 0
                                 }
                             );
-                            panic!();
                         }
                     }
                 }
@@ -86,7 +88,7 @@ impl<'a> Parser<'a> {
     }
     pub(super) fn advance(&mut self) -> Token {
         let a = self.lexer.next();
-        dbg!(format!("{}",a.kind));
+        // dbg!(format!("{}", a.kind));
         a
     }
     pub(super) fn expect(&mut self, expected: TokenKind) -> ParseResult<Token> {
@@ -144,13 +146,24 @@ impl<'a> Parser<'a> {
         Ok((PortId(ports_start), PortId(ports_end)))
     }
 
-    //TODO: handle comma-separated names
-    fn parse_port(&mut self) -> ParseResult<PortId> {
-        let name_tok = self.expect(TokenKind::Identifier)?;
-        let name = self.get_text(name_tok.span);
+    /// Parses a port declaration line, supporting comma-separated identifier lists
+    /// like `a, b, c : in std_logic`.
+    pub fn parse_port(&mut self) -> ParseResult<()> {
+        let mut names = Vec::new();
+
+        // Parse comma-separated identifiers
+        let first_tok = self.expect(TokenKind::Identifier)?;
+        names.push((self.get_text(first_tok.span), first_tok.span));
+
+        while self.next_is(TokenKind::Comma) {
+            self.advance(); // Consume ','
+            let tok = self.expect(TokenKind::Identifier)?;
+            names.push((self.get_text(tok.span), tok.span));
+        }
 
         self.expect(TokenKind::Colon)?;
 
+        // Parse port mode (defaults to 'in' per IEEE 1076 if omitted)
         let mode = match self.lexer.peek().kind {
             TokenKind::KwIn => {
                 self.advance();
@@ -171,17 +184,20 @@ impl<'a> Parser<'a> {
             _ => PortMode::In,
         };
 
-        let type_span = self.slice_until_depth_zero(&[TokenKind::Semicolon, TokenKind::RParen])?;
-        let port_type = self.get_text(type_span).trim();
+        let port_type = self.parse_expression()?;
 
-        let port = Port {
-            name,
-            name_span: name_tok.span,
-            mode,
-            port_type,
-        };
+        // Allocate each port consecutively so the arena slice range stays intact
+        for (name, name_span) in names {
+            let port = Port {
+                name,
+                name_span,
+                mode,
+                port_type,
+            };
+            self.arena.alloc_port(port);
+        }
 
-        Ok(self.arena.alloc_port(port))
+        Ok(())
     }
 
     /// Fast forwards to ```;``` consuming it

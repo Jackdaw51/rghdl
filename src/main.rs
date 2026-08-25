@@ -5,6 +5,7 @@ use std::{fmt::Write, process::Command};
 
 use crate::ast::PortMode;
 use crate::elaborator::{ElaboratedDesign, LibraryRegistry};
+use crate::printer::SAFormatCtx;
 use crate::{
     analyzer::{SemanticAnalyzer, SymbolTable},
     elaborator::Elaborator,
@@ -20,8 +21,10 @@ mod printer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let path = "test_files/and_gate.vhd";
-    let path = "test_files/audio_testbench.vhd";
+    // let path = "test_files/audio_testbench.vhd";
     // let path = "test_files/sine_wave_440hz.vhd";
+    let path = "velha_test_files/01_nand2.vhd";
+    let path = "velha_test_files/02_primitives.vhd";
     let source_string = fs::read_to_string(path).expect("Not found");
     // let source_string = fs::read_to_string("test_files/custom_types_pkg.vhd").expect("Not found");
     // let source_string = fs::read_to_string("test_files/latch_inference.vhd").expect("Not found");
@@ -31,8 +34,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut parser = Parser::new(&source_string);
     parser.parse();
-    dbg!("something");
-
+    if !parser.errors.is_empty() {
+        eprintln!(
+            "Parsing failed with {} error(s):",
+            parser.errors.len()
+        );
+        for err in &parser.errors {
+            eprintln!(
+                "  {}",
+                FormatCtx {
+                    item: err,
+                    source: &source_string,
+                    arena: &parser.arena,
+                    indent: 0,
+                }
+            );
+        }
+        return Ok(());
+    }
     // Optional: Debug print parsed AST
     let mut ast_dump = String::new();
     write!(
@@ -47,8 +66,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     println!("=== Parsed AST ===\n{}", ast_dump);
 
-    return Ok(());
-
     let mut s_table = SymbolTable::new();
     let registry = LibraryRegistry::initialize_builtins(&mut s_table.interner);
 
@@ -61,7 +78,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sa.errors.len()
         );
         for err in &sa.errors {
-            eprintln!("  {:?}", err);
+            eprintln!(
+                "  {}",
+                SAFormatCtx {
+                    item: err,
+                    source: &source_string,
+                    arena: &parser.arena,
+                    indent: 0,
+                    sa: &sa
+                }
+            );
         }
         return Ok(());
     }
@@ -91,19 +117,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     print!("=== Elaborated VHDL Output ===\n{}", elaborated_vhdl);
 
-    let output_path = &path.replace("test_files/", "");
+    let output_path = &path.replace("velha_test_files/", "");
     let name = &output_path.replace(".vhd", "");
-    let flattened = format!("test_files/{}_flat.vhd", name);
+    let flattened = format!("velha_test_files/{}_flat.vhd", name);
 
     fs::write(&flattened, &elaborated_vhdl)?;
 
-    let testbench = generate_equivalence_testbench(&top_instance, name, &elaborator.sa);
+    let testbench =
+        generate_equivalence_testbench(&top_instance, top_entity_ast.name, &elaborator.sa);
 
-    fs::write("test_files/tb_equiv.vhd", &testbench)?;
+    fs::write("velha_test_files/tb_equiv.vhd", &testbench)?;
     // run_ghdl_validation(&flattened, top_entity_ast.name)?;
     // run_ghdl_validation("test_files/tb_equiv.vhd", "and_gate")?;
 
-    run_equivalence_testbench(top_entity_ast.name)?;
+    run_equivalence_testbench(name)?;
 
     Ok(())
     // println!("{:?}",a.symbols);
@@ -141,10 +168,14 @@ fn run_ghdl_validation(
 }
 
 pub fn run_equivalence_testbench(analyzed_entity: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let normal = format!("test_files/{}.vhd", analyzed_entity);
-    let flat = format!("test_files/{}_flat.vhd", analyzed_entity);
+    let velha = "velha_test_files";
+    let folder = velha;
+    let normal = format!("{folder}/{}.vhd", analyzed_entity);
+    let flat = format!("{folder}/{}_flat.vhd", analyzed_entity);
+    dbg!(&normal, &flat);
+    let tb = format!("{folder}/tb_equiv.vhd");
     let analyze_status = Command::new("ghdl")
-        .args(["-a", &normal, &flat, "test_files/tb_equiv.vhd"])
+        .args(["-a", &normal, &flat, &tb])
         .status()?;
 
     if !analyze_status.success() {
@@ -201,6 +232,11 @@ pub fn generate_equivalence_testbench(
                     return_type,
                 } => todo!(),
                 analyzer::TypeKind::Error => todo!(),
+                analyzer::TypeKind::Physical {
+                    name,
+                    primary_unit,
+                    units,
+                } => todo!(),
             },
             None => todo!(),
         };

@@ -16,7 +16,7 @@ pub struct Token {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Span {
+pub struct Span {
     pub start: usize,
     pub end: usize,
 }
@@ -65,6 +65,7 @@ pub enum TokenKind {
     KwNor,
     KwAbs,
     KwMap,
+    KwAfter,
 
     // TODO * and /
     OpAssign,            // :=
@@ -131,6 +132,7 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("nor", TokenKind::KwNor),
     ("abs", TokenKind::KwAbs),
     ("map", TokenKind::KwMap),
+    ("after",TokenKind::KwAfter)
 ];
 impl Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -203,6 +205,7 @@ impl Display for TokenKind {
             TokenKind::Eof => "<EOF>",
             TokenKind::Error => "<ERROR>",
             TokenKind::OpConcat => "&",
+            TokenKind::KwAfter => "after",
         };
         write!(f, "{}", s)
     }
@@ -291,7 +294,7 @@ pub struct Parser<'a> {
     pub(crate) lexer: Lexer<'a>,
     pub arena: AstArena<'a>,
     pub source: &'a str,
-    errors: Vec<ParseError>,
+    pub(crate) errors: Vec<ParseError>,
 }
 #[derive(Debug, Clone)]
 pub enum ParseErrorKind {

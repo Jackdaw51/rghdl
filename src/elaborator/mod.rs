@@ -8,9 +8,10 @@
 
 mod elaborator;
 mod environment;
+mod evaluated_value;
 
 use crate::analyzer::{SemanticAnalyzer, SymbolId, TypeId};
-use crate::ast::{AstArena, BinaryOp, PortMode};
+use crate::ast::{AstArena, BinaryOp, PortMode, UnaryOp};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -85,6 +86,7 @@ pub enum ElaboratedSequentialStmt {
 pub struct ElaboratedConcurrentAssignment {
     pub target_signal: SignalId,
     pub value_expr: ExprId,
+    pub delay_expr: Option<ExprId>,
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +97,10 @@ pub enum EvaluatedExpr {
         lhs: ExprId,
         op: BinaryOp,
         rhs: ExprId,
+    },
+    UnaryOp {
+        op: UnaryOp,
+        expr: ExprId,
     },
 }
 
@@ -181,6 +187,7 @@ pub enum ElaboratorError {
         span: Span,
     },
     SignalNotFound(String),
+    SymbolNotFound(String),
     NotAnEntity,
 }
 
@@ -225,12 +232,15 @@ use crate::analyzer::TypeArena;
 pub struct Package {
     /// Types exported by this package (keyed by SymbolId for fast AST scope resolution)
     pub types: HashMap<SymbolId, TypeId>,
-    
+
     /// Constants exported by this package (e.g., ieee.numeric_std constants)
     pub constants: HashMap<SymbolId, EvaluatedValue>,
-    
+
     /// Package-level signals or shared variables
     pub signals: HashMap<SymbolId, SignalId>,
+
+    /// Function signatures exported by this package
+    pub functions: HashMap<SymbolId, TypeId>,
 
     /// Internal helper map: string name -> SymbolId for compiler string lookups
     pub name_map: HashMap<String, SymbolId>,
@@ -246,6 +256,11 @@ impl Package {
     pub fn add_constant(&mut self, name: &str, sym: SymbolId, val: EvaluatedValue) {
         let name_lower = name.to_lowercase();
         self.constants.insert(sym, val);
+        self.name_map.insert(name_lower, sym);
+    }
+    pub fn add_function(&mut self, name: &str, sym: SymbolId, fn_type_id: TypeId) {
+        let name_lower = name.to_lowercase();
+        self.functions.insert(sym,fn_type_id);
         self.name_map.insert(name_lower, sym);
     }
 }

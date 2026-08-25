@@ -58,7 +58,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::LParen)?;
 
         while self.lexer.peek().kind != TokenKind::RParen
-            && self.lexer.peek().kind != TokenKind::Eof
+            && self.not_eof()
         {
             // Generics in entity declarations are interface constants.
             // The `constant` keyword is optional
@@ -91,7 +91,6 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
-
             // Push each generic as a `Decl::Constant` into the AST arena
             for name in names {
                 self.arena.decls.push(Decl::Constant {

@@ -90,6 +90,12 @@ pub enum Expr<'a> {
         args: Range<u32>, // The expressions inside the parentheses
         span: Span,
     },
+    // Expression to encode physical quantities
+    PhysicalLiteral {
+        value: ExprId, // Points to the numeric literal (e.g. 1)
+        unit: &'a str, // Unit symbol (e.g. "ns")
+        span: Span,
+    },
     Others {
         span: Span,
     },
@@ -129,7 +135,7 @@ pub struct Port<'a> {
     pub name: &'a str,
     pub name_span: Span,
     pub mode: PortMode,
-    pub port_type: &'a str,
+    pub port_type: ExprId,
 }
 
 #[derive(Debug, Clone)]
@@ -138,7 +144,7 @@ pub struct Entity<'a> {
     pub name_span: Span,
     pub ports_start: PortId,
     pub ports_end: PortId,
-    pub generics_start:DeclId,
+    pub generics_start: DeclId,
     pub generics_end: DeclId,
 }
 
@@ -172,6 +178,7 @@ pub enum SequentialStmt<'a> {
     SequentialAssignment {
         target: ExprId,
         expression: ExprId,
+        after: Option<ExprId>
     },
     // var := var + 1;
     VariableAssignment {
@@ -205,7 +212,7 @@ pub enum SequentialStmt<'a> {
 #[derive(Debug, Clone)]
 pub struct Association {
     /// `Some(expr)` for named mapping (`A => sig`), `None` for positional mapping (`sig`)
-    pub formal: Option<ExprId>, 
+    pub formal: Option<ExprId>,
     /// The signal or expression being mapped (`sig`, `open`, `a and b`)
     pub actual: ExprId,
 }
@@ -216,6 +223,7 @@ pub enum ConcurrentStmt<'a> {
         label: Option<Span>, // cause for some reason concurrent assignment can have a label `my_label : data_bus(0) <= '1'``
         target: ExprId,
         expression: ExprId,
+        after: Option<ExprId>,
     },
 
     // out_port <= a when control = '1' else b;
@@ -228,8 +236,8 @@ pub enum ConcurrentStmt<'a> {
         label: Option<Span>,
         component_name: Span,
         arch_qualifier: Option<Span>, // Like (rtl)
-        generic_map:Range<u32>,
-        port_map:Range<u32>
+        generic_map: Range<u32>,
+        port_map: Range<u32>,
     },
 
     // My_Process: process(clk) begin ... end process;

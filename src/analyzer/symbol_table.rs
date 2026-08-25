@@ -1,8 +1,6 @@
 use std::fmt::Debug;
 
-use crate::analyzer::{
-    DeclRef, ScopeArena, ScopeId, SymbolId, SymbolInterner, SymbolTable,
-};
+use crate::analyzer::{DeclRef, ScopeArena, ScopeId, SymbolId, SymbolInterner, SymbolTable};
 
 impl Debug for SymbolTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -20,7 +18,7 @@ impl SymbolTable {
             interner: SymbolInterner::default(),
         };
         let _sym_ieee = symbols.interner.get_or_internalize("ieee");
-        let _sym_std  = symbols.interner.get_or_internalize("std");
+        let _sym_std = symbols.interner.get_or_internalize("std");
         let _sym_work = symbols.interner.get_or_internalize("work");
         symbols
     }
@@ -46,13 +44,17 @@ impl SymbolTable {
 
         while let Some(scope_id) = current {
             let scope = self.scopes.get(scope_id);
-            if let Some(&decl) = scope.bindings.get(&symbol) {
-                return Some(decl);
+            if let Some(decl) = scope.bindings.get(&symbol) {
+                return Some(decl.clone());
             }
             // Move up to parent scope
             current = scope.parent;
         }
 
         None // Undefined symbol error
+    }
+    /// Look up a symbol exclusively in the given scope (no parent traversal)
+    pub fn lookup_local(&self, scope_id: ScopeId, sym: SymbolId) -> Option<&DeclRef> {
+        self.scopes.get(scope_id).bindings.get(&sym)
     }
 }

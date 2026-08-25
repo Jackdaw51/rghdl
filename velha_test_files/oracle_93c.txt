@@ -1,0 +1,64 @@
+### positive cases (expect exit 0), --std=93c
+01_smoke/nand2.vhd                       expect=accept got=accept
+01_smoke/primitives.vhd                  expect=accept got=accept
+02_structural/adders.vhd                 expect=accept got=accept
+03_behavioral/alu.vhd                    expect=accept got=accept
+03_behavioral/dataflow.vhd               expect=accept got=accept
+04_fsm/fsm.vhd                           expect=accept got=accept
+05_names/ambiguity.vhd                   expect=accept got=accept
+06_aggregates/aggregates.vhd             expect=accept got=accept
+07_declarative/decls.vhd                 expect=accept got=accept
+
+### negative cases (expect nonzero), --std=93c
+09_negative/n01_missing_semicolon.vhd    expect=reject got=reject
+    09_negative/n01_missing_semicolon.vhd:10:6:error: missing ";" at end of port clause
+    )
+     ^
+09_negative/n02_label_mismatch.vhd       expect=reject got=reject
+    09_negative/n02_label_mismatch.vhd:13:18:error: misspelling, "rtl" expected
+end architecture wrong_name;
+                 ^
+09_negative/n03_signal_in_process_decl.vhd expect=reject got=reject
+    09_negative/n03_signal_in_process_decl.vhd:14:9:error: signal declaration not allowed in process
+        signal illegal : std_logic;
+        ^
+09_negative/n04_wait_in_sensitised_process.vhd expect=reject got=reject
+    09_negative/n04_wait_in_sensitised_process.vhd:14:9:error: wait statement not allowed in a sensitized process
+        wait for 10 ns;
+        ^
+09_negative/n05_others_not_last.vhd      expect=reject got=reject
+    09_negative/n05_others_not_last.vhd:15:13:error: choice others must be the last alternative
+            when others => y <= '1';
+            ^
+09_negative/n06_variable_as_signal.vhd   expect=reject got=reject
+    09_negative/n06_variable_as_signal.vhd:17:9:error: target (variable "v") is not a signal
+        v <= '1';
+        ^
+09_negative/n06_variable_as_signal.vhd:18:9:error: signal "s" is not a variable to be assigned
+09_negative/n07_unresolved_multiple_drivers.vhd expect=reject-at-elab got=ACCEPT-UNEXPECTED
+09_negative/n08_undeclared_identifier.vhd expect=reject got=reject
+    09_negative/n08_undeclared_identifier.vhd:11:16:error: no declaration for "never_declared"
+    y <= a and never_declared;
+               ^
+09_negative/n09_port_mode_violation.vhd  expect=reject got=reject
+    09_negative/n09_port_mode_violation.vhd:14:10:error: port "y" cannot be read
+    z <= y;
+         ^
+09_negative/n09_port_mode_violation.vhd:15:5:error: port "a" can't be assigned
+09_negative/n10_generate_label_missing.vhd expect=reject got=reject
+    09_negative/n10_generate_label_missing.vhd:11:5:error: a generate statement must have a label
+    for i in 0 to 3 generate
+    ^
+09_negative/n11_type_mismatch.vhd        expect=reject got=reject
+    09_negative/n11_type_mismatch.vhd:12:10:error: can't match integer literal with type array type "STD_LOGIC_VECTOR"
+    y <= 42;
+         ^
+09_negative/n12_duplicate_declaration.vhd expect=reject got=reject
+    09_negative/n12_duplicate_declaration.vhd:11:12:error: identifier "s" already used for a declaration
+    signal s : std_logic_vector(3 downto 0);
+           ^
+09_negative/n12_duplicate_declaration.vhd:10:12:error: previous declaration: signal "s"
+
+### VHDL-2008 case (expect accept under 08, reject under 93)
+08_vhdl2008/vhdl2008.vhd                 --std=93c  got=reject
+08_vhdl2008/vhdl2008.vhd                 --std=08   got=accept

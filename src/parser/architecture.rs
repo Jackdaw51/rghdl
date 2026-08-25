@@ -173,12 +173,19 @@ impl<'a> Parser<'a> {
             // Concurrent Signal Assignment: target <= expr;
             TokenKind::OpSignalAssignOrLEq => {
                 let rhs_expr = self.parse_expression()?;
+                let after = if self.next_is(TokenKind::KwAfter) {
+                    self.advance(); // consume `after`
+                    Some(self.parse_expression()?)
+                } else {
+                    None
+                };
                 self.expect(TokenKind::Semicolon)?;
 
                 Ok(ConcurrentStmt::ConcurrentAssignment {
                     target: target_expr,
                     expression: rhs_expr,
                     label: label,
+                    after,
                 })
             }
 
@@ -186,7 +193,7 @@ impl<'a> Parser<'a> {
             // The Pratt parser parsed `my_component` as `target_expr` (Expr::Identifier).
             TokenKind::KwPort | TokenKind::KwGeneric => {
                 let comp_name = match self.arena.exprs.get(target_expr.0 as usize) {
-                    Some(Expr::Identifier { span ,..}) => *span,
+                    Some(Expr::Identifier { span, .. }) => *span,
                     _ => todo!(),
                 };
                 self.parse_component_instantiation_body(comp_name, next_tok, label)
@@ -351,10 +358,17 @@ impl<'a> Parser<'a> {
                     // Signal Assignment: target <= expr;
                     TokenKind::OpSignalAssignOrLEq => {
                         let expression = self.parse_expression()?;
+                        let after = if self.next_is(TokenKind::KwAfter) {
+                            self.advance(); // consume `after`
+                            Some(self.parse_expression()?)
+                        } else {
+                            None
+                        };
                         self.expect(TokenKind::Semicolon)?;
                         Ok(SequentialStmt::SequentialAssignment {
                             target: target_expr,
                             expression,
+                            after,
                         })
                     }
 
@@ -473,6 +487,8 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parses a direct entity `label: entity library_name.entity_name(arch_name) port map (...);`
+    /// A direct entity is the instantiation that directly targets a compiled entity in a design library
     fn parse_direct_entity_instantiation(
         &mut self,
         label: Option<Span>,
@@ -549,7 +565,7 @@ impl<'a> Parser<'a> {
                     actual: first_expr,
                 }
             };
-            dbg!(assoc.clone(),self.arena.expr(first_expr));
+            dbg!(assoc.clone(), self.arena.expr(first_expr));
             self.arena.associations.push(assoc);
 
             if self.next_is(TokenKind::Comma) {

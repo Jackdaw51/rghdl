@@ -7,8 +7,8 @@ pub(crate) mod types;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 
-use crate::parser::Span;
 use crate::ast::*;
+use crate::parser::Span;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
@@ -74,11 +74,12 @@ pub struct SemanticAnalyzer<'a> {
     pub type_integer: TypeId,
     pub type_boolean: TypeId,
     pub type_real: TypeId,
+    pub type_time: TypeId,
     pub entity_architectures: HashMap<EntityId, Vec<ArchitectureId>>,
     pub expr_types: Vec<TypeId>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeclRef {
     Entity {
         entity_id: EntityId,
@@ -107,6 +108,7 @@ pub enum DeclRef {
         type_id: TypeId,
     },
     Type(TypeId),
+    Function(TypeId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,11 +176,14 @@ pub enum TypeKind {
         args: Vec<TypeId>,
         return_type: TypeId,
     },
+    Physical {
+        name: SymbolId,
+        primary_unit: SymbolId,
+        units: Vec<(SymbolId, u64)>, // (unit_symbol, multiplier_relative_to_fs)
+    },
     /// Unresolved or error
     Error,
 }
-
-
 
 impl<'a> Debug for SemanticAnalyzer<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -86,13 +86,20 @@ impl<'a> Elaborator<'a> {
         for stmt in self.ast.conc_statements(arch.stmts.clone()) {
             match stmt {
                 ConcurrentStmt::ConcurrentAssignment {
-                    target, expression, ..
+                    target,
+                    expression,
+                    after,
+                    ..
                 } => {
                     let target_sig = self.resolve_expr_signal(*target, &local_env)?;
                     let expr_id = self.lower_expr(*expression, &local_env)?;
+                    let delay_expr = after
+                        .map(|delay_ast_id| self.lower_expr(delay_ast_id, &local_env))
+                        .transpose()?;
                     concurrent_assignments.push(ElaboratedConcurrentAssignment {
                         target_signal: target_sig,
                         value_expr: expr_id,
+                        delay_expr,
                     });
                 }
                 ConcurrentStmt::ConditionalAssignment { .. } => {
@@ -198,28 +205,14 @@ impl<'a> Elaborator<'a> {
     }
 
     fn resolve_port_type(&self, port: &Port<'a>) -> Result<TypeId, ElaboratorError> {
-        let type_name_lower = port.port_type.to_lowercase();
-
-        let type_sym = self
-            .sa
-            .symbols
-            .interner
-            .get_symbol(&type_name_lower)
+        self.sa
+            .expr_types
+            .get(port.port_type.0 as usize)
+            .copied()
             .ok_or_else(|| ElaboratorError::EvaluationFailed {
-                reason: format!("Type '{}' not found in symbol interner", port.port_type),
+                reason: format!("Failed to resolve type for port '{}'", port.name),
                 span: port.name_span,
-            })?;
-
-        match self.sa.symbols.lookup(self.sa.current_scope, type_sym) {
-            Some(crate::analyzer::DeclRef::Type(type_id)) => Ok(type_id),
-            _ => Err(ElaboratorError::EvaluationFailed {
-                reason: format!(
-                    "Symbol '{}' is not a valid type declaration",
-                    port.port_type
-                ),
-                span: port.name_span,
-            }),
-        }
+            })
     }
 
     fn elaborate_ports(
@@ -330,7 +323,11 @@ impl<'a> Elaborator<'a> {
         out_stmts: &mut Vec<ElaboratedSequentialStmt>,
     ) -> Result<(), ElaboratorError> {
         match stmt {
-            SequentialStmt::SequentialAssignment { target, expression } => {
+            SequentialStmt::SequentialAssignment {
+                target,
+                expression,
+                after,
+            } => {
                 let sig_id = self.resolve_expr_signal(*target, env)?;
                 let val_expr = self.lower_expr(*expression, env)?;
                 out_stmts.push(ElaboratedSequentialStmt::SignalAssignment {
@@ -469,15 +466,23 @@ impl<'a> Elaborator<'a> {
     ) -> Result<EvaluatedValue, ElaboratorError> {
         let expr = &self.ast.exprs[expr_id.0 as usize];
         match expr {
-            Expr::Literal { text, .. } => {
-                if let Ok(val) = text.parse::<i64>() {
-                    Ok(EvaluatedValue::Integer(val))
-                } else if *text == "true" || *text == "false" {
+            Expr::Literal { text, span } => {
+                if *text == "true" || *text == "false" {
                     Ok(EvaluatedValue::Boolean(*text == "true"))
+                } else if text.starts_with('\'') && text.ends_with('\'') {
+                    let sym = self
+                        .sa
+                        .symbols
+                        .interner
+                        .get_symbol(text)
+                        .ok_or_else(|| ElaboratorError::SymbolNotFound(text.to_string()))?;
+                    Ok(EvaluatedValue::EnumLiteral(sym))
+                } else if let Ok(val) = text.parse::<i64>() {
+                    Ok(EvaluatedValue::Integer(val))
                 } else {
                     Err(ElaboratorError::EvaluationFailed {
-                        reason: format!("Invalid literal '{}'", text),
-                        span: expr.span(),
+                        reason: format!("Unsupported or invalid literal '{}'", text),
+                        span: *span,
                     })
                 }
             }
@@ -538,8 +543,121 @@ impl<'a> Elaborator<'a> {
                     }),
                 }
             }
-            _ => Err(ElaboratorError::EvaluationFailed {
-                reason: "Non-static expression encountered during evaluation".to_string(),
+            Expr::Grouping { expr: inner, .. } => self.eval_const_expr(*inner, env),
+            Expr::CallOrIndex { callee, args, .. } => {
+                let callee_sym = self.resolve_expr_symbol(*callee)?;
+                let callee_name = self.sa.symbols.interner.get(callee_sym);
+
+                let arg_slice = &self.ast.expr_lists[args.start as usize..args.end as usize];
+                let eval_args: Result<Vec<EvaluatedValue>, ElaboratorError> = arg_slice
+                    .iter()
+                    .map(|&arg_id| self.eval_const_expr(arg_id, env))
+                    .collect();
+                let eval_args = eval_args?;
+
+                match callee_name {
+                    "to_unsigned" | "to_signed" => {
+                        if eval_args.len() != 2 {
+                            return Err(ElaboratorError::EvaluationFailed {
+                                reason: format!(
+                                    "'{}' requires 2 arguments (value, size)",
+                                    callee_name
+                                ),
+                                span: expr.span(),
+                            });
+                        }
+                        match (&eval_args[0], &eval_args[1]) {
+                            (EvaluatedValue::Integer(val), EvaluatedValue::Integer(size)) => {
+                                let size = *size as usize;
+                                let bits = (0..size)
+                                    .rev()
+                                    .map(|i| EvaluatedValue::Integer((val >> i) & 1))
+                                    .collect();
+                                Ok(EvaluatedValue::Vector(bits))
+                            }
+                            _ => Err(ElaboratorError::EvaluationFailed {
+                                reason: format!("'{}' requires integer arguments", callee_name),
+                                span: expr.span(),
+                            }),
+                        }
+                    }
+                    "to_integer" => {
+                        if eval_args.len() != 1 {
+                            return Err(ElaboratorError::EvaluationFailed {
+                                reason: "'to_integer' requires exactly 1 argument".into(),
+                                span: expr.span(),
+                            });
+                        }
+                        match &eval_args[0] {
+                            EvaluatedValue::Vector(bits) => {
+                                let mut num = 0i64;
+                                for bit in bits {
+                                    if let EvaluatedValue::Integer(b) = bit {
+                                        num = (num << 1) | (*b & 1);
+                                    }
+                                }
+                                Ok(EvaluatedValue::Integer(num))
+                            }
+                            EvaluatedValue::Integer(v) => Ok(EvaluatedValue::Integer(*v)),
+                            _ => Err(ElaboratorError::EvaluationFailed {
+                                reason: "'to_integer' expects vector or integer argument".into(),
+                                span: expr.span(),
+                            }),
+                        }
+                    }
+                    other => Err(ElaboratorError::EvaluationFailed {
+                        reason: format!("Unsupported compile-time function call '{}'", other),
+                        span: expr.span(),
+                    }),
+                }
+            }
+            Expr::PhysicalLiteral { value, unit, span } => {
+                let quantity = match self.eval_const_expr(*value, env)? {
+                    EvaluatedValue::Integer(val) => val,
+                    _ => {
+                        return Err(ElaboratorError::EvaluationFailed {
+                            reason: "Physical literal multiplier must evaluate to an integer"
+                                .to_string(),
+                            span: *span,
+                        });
+                    }
+                };
+
+                let scale_factor: i64 = match unit.to_lowercase().as_str() {
+                    "fs" => 1,
+                    "ps" => 1_000,
+                    "ns" => 1_000_000,
+                    "us" => 1_000_000_000,
+                    "ms" => 1_000_000_000_000,
+                    "sec" | "s" => 1_000_000_000_000_000,
+                    "min" => 60 * 1_000_000_000_000_000,
+                    "hr" => 3600 * 1_000_000_000_000_000,
+                    _ => {
+                        return Err(ElaboratorError::EvaluationFailed {
+                            reason: format!("Unknown physical unit '{}'", unit),
+                            span: *span,
+                        });
+                    }
+                };
+
+                let total_fs = quantity.checked_mul(scale_factor).ok_or_else(|| {
+                    ElaboratorError::EvaluationFailed {
+                        reason: format!(
+                            "Overflow while evaluating physical literal '{} {}'",
+                            quantity, unit
+                        ),
+                        span: *span,
+                    }
+                })?;
+
+                Ok(EvaluatedValue::Integer(total_fs))
+            }
+            a => Err(ElaboratorError::EvaluationFailed {
+                reason: format!(
+                    "Non-static expression encountered during evaluation: {}\n Debug: {:?}",
+                    self.sa.get_text(&expr.span()),
+                    a
+                ),
                 span: expr.span(),
             }),
         }
@@ -552,41 +670,66 @@ impl<'a> Elaborator<'a> {
         env: &Environment,
     ) -> Result<ExprId, ElaboratorError> {
         let expr = &self.ast.exprs[expr_id.0 as usize];
-        let lowered = match expr {
-            Expr::Literal { text, .. } => {
-                let val = if let Ok(i) = text.parse::<i64>() {
-                    EvaluatedValue::Integer(i)
-                } else {
-                    EvaluatedValue::Boolean(*text == "true")
-                };
-                EvaluatedExpr::Literal(val)
-            }
-            Expr::Identifier { name, .. } => {
-                let sym = self.get_symbol_unw(name);
-                if let Some(sig_id) = env.lookup_signal(sym) {
-                    EvaluatedExpr::SignalRead(sig_id)
-                } else if let Some(val) = env.lookup_constant(sym) {
-                    EvaluatedExpr::Literal(val.clone())
-                } else {
-                    return Err(ElaboratorError::SignalNotFound(name.to_string()));
+        let lowered =
+            match expr {
+                Expr::Literal { text, .. } => {
+                    let val =
+                        if let Ok(i) = text.parse::<i64>() {
+                            EvaluatedValue::Integer(i)
+                        } else if *text == "true" || *text == "false" {
+                            EvaluatedValue::Boolean(*text == "true")
+                        } else if text.starts_with('\'') && text.ends_with('\'') {
+                            let sym =
+                                self.sa.symbols.interner.get_symbol(text).ok_or_else(|| {
+                                    ElaboratorError::SymbolNotFound(text.to_string())
+                                })?;
+                            EvaluatedValue::EnumLiteral(sym)
+                        } else {
+                            // Fallback for enumerated identifier literals (e.g., state names like IDLE)
+                            let sym =
+                                self.sa.symbols.interner.get_symbol(text).ok_or_else(|| {
+                                    ElaboratorError::SymbolNotFound(text.to_string())
+                                })?;
+                            EvaluatedValue::EnumLiteral(sym)
+                        };
+                    EvaluatedExpr::Literal(val)
                 }
-            }
-            Expr::Binary { op, lhs, rhs, .. } => {
-                let l_id = self.lower_expr(*lhs, env)?;
-                let r_id = self.lower_expr(*rhs, env)?;
-                EvaluatedExpr::BinaryOp {
-                    lhs: l_id,
-                    op: *op,
-                    rhs: r_id,
+                Expr::Identifier { name, .. } => {
+                    let sym = self.get_symbol_unw(name);
+                    if let Some(sig_id) = env.lookup_signal(sym) {
+                        EvaluatedExpr::SignalRead(sig_id)
+                    } else if let Some(val) = env.lookup_constant(sym) {
+                        EvaluatedExpr::Literal(val.clone())
+                    } else {
+                        return Err(ElaboratorError::SignalNotFound(name.to_string()));
+                    }
                 }
-            }
-            _ => {
-                return Err(ElaboratorError::NotYetImplemented {
-                    feature: "Complex expression lowering".into(),
-                    span: expr.span(),
-                });
-            }
-        };
+                Expr::Binary { op, lhs, rhs, .. } => {
+                    let l_id = self.lower_expr(*lhs, env)?;
+                    let r_id = self.lower_expr(*rhs, env)?;
+                    EvaluatedExpr::BinaryOp {
+                        lhs: l_id,
+                        op: *op,
+                        rhs: r_id,
+                    }
+                }
+                Expr::Unary { op, expr, .. } => {
+                    let inner_id = self.lower_expr(*expr, env)?;
+                    EvaluatedExpr::UnaryOp {
+                        op: *op,
+                        expr: inner_id,
+                    }
+                }
+                Expr::Grouping { expr, .. } => {
+                    return self.lower_expr(*expr, env);
+                }
+                a => {
+                    return Err(ElaboratorError::NotYetImplemented {
+                        feature: format!("Complex expression lowering, {:?}", a),
+                        span: expr.span(),
+                    });
+                }
+            };
 
         Ok(self.arena.alloc_expr(lowered))
     }

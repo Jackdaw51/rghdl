@@ -1,12 +1,11 @@
 use std::ops::Range;
 
+use crate::analyzer::DeclRef;
+use crate::ast::{BinaryOp, Expr, ExprId, UnaryOp};
 use crate::{
     analyzer::{SemanticAnalyzer, SemanticError, SemanticErrorKind, TypeId, TypeKind},
-    parser::{
-        Span,
-    },
+    parser::Span,
 };
-use crate::ast::{BinaryOp, Expr, ExprId, UnaryOp};
 
 impl<'a> SemanticAnalyzer<'a> {
     pub fn infer_expr_type(
@@ -43,6 +42,9 @@ impl<'a> SemanticAnalyzer<'a> {
                 field,
                 span,
             } => self.infer_record_access(target, field, span),
+            Expr::PhysicalLiteral { value, unit, span } => {
+                self.infer_physical_literal(value, unit, span)
+            }
         }?;
         if (expr_id.0 as usize) >= self.expr_types.len() {
             self.expr_types
@@ -73,6 +75,43 @@ impl<'a> SemanticAnalyzer<'a> {
             }
             _ => Err(SemanticError {
                 kind: SemanticErrorKind::NotARecord,
+                span,
+            }),
+        }
+    }
+
+    fn infer_physical_literal(
+        &mut self,
+        value: ExprId,
+        unit: &'a str,
+        span: Span,
+    ) -> Result<TypeId, SemanticError> {
+        let scalar_type = self.infer_expr_type(value, Some(self.type_integer))?;
+        if scalar_type != self.type_integer && scalar_type != self.type_real {
+            return Err(SemanticError {
+                kind: SemanticErrorKind::InvalidLiteral(
+                    "Physical literal multiplier must be an integer or real".into(),
+                ),
+                span,
+            });
+        }
+        let unit_symbol = self
+            .symbols
+            .interner
+            .get_symbol(unit)
+            .ok_or_else(|| SemanticError {
+                kind: SemanticErrorKind::UndefinedSymbol(unit.to_string()),
+                span,
+            })?;
+
+        match self.symbols.lookup(self.current_scope, unit_symbol) {
+            Some(DeclRef::Type(type_id)) => Ok(type_id),
+            Some(_) => Err(SemanticError {
+                kind: SemanticErrorKind::UnknownType(unit.to_string()),
+                span,
+            }),
+            None => Err(SemanticError {
+                kind: SemanticErrorKind::UndefinedSymbol(unit.to_string()),
                 span,
             }),
         }
@@ -289,38 +328,58 @@ impl<'a> SemanticAnalyzer<'a> {
         let target_ty = self.infer_expr_type(target, None)?;
         let arg_ids = &self.ast.expr_lists[args.start as usize..args.end as usize];
 
-        // Temporary enum so the borrow of `self.types` ends
         enum TargetKind {
             Array(TypeId),
             Function(Vec<TypeId>, TypeId),
+            TypeConversion(TypeId),
             Invalid,
         }
 
         let target_kind = match self.types.get(target_ty) {
-            Some(TypeKind::Array { element_type, .. }) => {
-                TargetKind::Array(*element_type) // TypeId is Copy
-            }
+            Some(TypeKind::Array { element_type, .. }) => TargetKind::Array(*element_type),
             Some(TypeKind::Function {
                 args, return_type, ..
-            }) => {
-                // Clone the argument list so it is detached from self.types
-                TargetKind::Function(args.clone(), *return_type)
-            }
-            _ => TargetKind::Invalid,
+            }) => TargetKind::Function(args.clone(), *return_type),
+            // Valid types used as target(...) represent VHDL type conversions
+            Some(_) => TargetKind::TypeConversion(target_ty),
+            None => TargetKind::Invalid,
         };
 
         match target_kind {
             TargetKind::Array(element_type) => {
+                if arg_ids.is_empty() {
+                    return Err(SemanticError {
+                        kind: SemanticErrorKind::CannotIndexOrCallNonArray,
+                        span,
+                    });
+                }
                 for &arg_id in arg_ids {
                     self.infer_expr_type(arg_id, Some(self.type_integer))?;
                 }
                 Ok(element_type)
             }
             TargetKind::Function(expected_args, return_type) => {
+                if arg_ids.len() != expected_args.len() {
+                    return Err(SemanticError {
+                        kind: SemanticErrorKind::AggregateSizeMismatch,
+                        span,
+                    });
+                }
                 for (&arg_id, &expected_param_ty) in arg_ids.iter().zip(expected_args.iter()) {
                     self.infer_expr_type(arg_id, Some(expected_param_ty))?;
                 }
                 Ok(return_type)
+            }
+            TargetKind::TypeConversion(target_type) => {
+                // VHDL type conversions take exactly one argument: TargetType(expr)
+                if arg_ids.len() != 1 {
+                    return Err(SemanticError {
+                        kind: SemanticErrorKind::CannotIndexOrCallNonArray,
+                        span,
+                    });
+                }
+                self.infer_expr_type(arg_ids[0], None)?;
+                Ok(target_type)
             }
             TargetKind::Invalid => Err(SemanticError {
                 kind: SemanticErrorKind::CannotIndexOrCallNonArray,

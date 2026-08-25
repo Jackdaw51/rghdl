@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use std::ops::Range;
 
+use crate::analyzer::{SemanticError, SemanticErrorKind};
 use crate::ast::{
     AstArena, ConcurrentStmt, ContextItem, Decl, ElsifBranch, Entity, Expr, Port, PortId,
     SequentialStmt, UnaryOp,
@@ -12,7 +13,7 @@ impl<'a> Display for FormatCtx<'a, ParseError> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.item.kind {
             crate::parser::ParseErrorKind::ExpectedToken { expected, found } => {
-                write!(f, "Expected {expected}, found {found}")
+                write!(f, "Expected '{expected}', found '{found}'")
             }
             crate::parser::ParseErrorKind::ExpectedTokens { expected, found } => {
                 let valid_tokens: Vec<_> = expected
@@ -86,7 +87,7 @@ impl<'a> Display for FormatCtx<'a, Expr<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.item {
             Expr::Literal { text, span: _ } => write!(f, "{}", text),
-            Expr::Identifier { span,.. } => write!(f, "{}", self.get_text(*span)),
+            Expr::Identifier { span, .. } => write!(f, "{}", self.get_text(*span)),
             Expr::Binary {
                 op,
                 lhs,
@@ -139,6 +140,7 @@ impl<'a> Display for FormatCtx<'a, Expr<'a>> {
                 field,
                 span: _,
             } => write!(f, "{}.{}", self.child(self.get_expr(*target)), field),
+            Expr::PhysicalLiteral { value, unit, span } => todo!(),
         }
     }
 }
@@ -151,6 +153,7 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt<'a>> {
                 target,
                 label,
                 expression,
+                after,
             } => {
                 if let Some(lbl_span) = label {
                     write!(f, "{}: ", self.get_text(*lbl_span))?;
@@ -223,7 +226,7 @@ impl<'a> Display for FormatCtx<'a, SequentialStmt<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.pad())?;
         match self.item {
-            SequentialStmt::SequentialAssignment { target, expression } => writeln!(
+            SequentialStmt::SequentialAssignment { target, expression, after } => writeln!(
                 f,
                 "{} <= {};",
                 self.child(self.get_expr(*target)),
@@ -373,7 +376,14 @@ impl<'a> Display for FormatCtx<'a, ContextItem<'a>> {
 impl<'a> Display for FormatCtx<'a, Port<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let p = self.item;
-        write!(f, "{}{}: {:?} {}", self.pad(), p.name, p.mode, p.port_type)
+        write!(
+            f,
+            "{}{}: {:?} {}",
+            self.pad(),
+            p.name,
+            p.mode,
+            self.child(self.get_expr(p.port_type))
+        )
     }
 }
 impl<'a> Display for FormatCtx<'a, Entity<'a>> {
@@ -387,6 +397,7 @@ impl<'a> Display for FormatCtx<'a, Entity<'a>> {
         Ok(())
     }
 }
+
 impl<'a, T> FormatCtx<'a, T> {
     fn write_ports(
         &self,
@@ -394,17 +405,17 @@ impl<'a, T> FormatCtx<'a, T> {
         ports_start: PortId,
         ports_end: PortId,
     ) -> std::fmt::Result {
-        writeln!(f, "\t{}port (", self.pad())?;
+        writeln!(f, "{}port (", self.pad())?;
         let arena = self.arena;
         let ids = &arena.ports[ports_start.0 as usize..ports_end.0 as usize];
         for ports in ids {
-            write!(f, "\t{}", self.child_indented(ports))?;
+            write!(f, "{}", self.child_indented(ports))?;
             if ids.last().unwrap() != ports {
                 write!(f, ";")?;
             }
             writeln!(f)?;
         }
-        writeln!(f, "\t{});", self.pad())
+        writeln!(f, "{});", self.pad())
     }
     fn fmt_association_list(
         &self,
@@ -421,13 +432,13 @@ impl<'a, T> FormatCtx<'a, T> {
                 dbg!(assoc);
             }
             // Named mapping: formal => actual
-            write!(f,"{}",self.pad())?;
+            write!(f, "{}", self.pad())?;
             if let Some(formal_id) = assoc.formal {
-                write!(f,"{}",self.child(self.arena.expr(formal_id)))?;
+                write!(f, "{}", self.child(self.arena.expr(formal_id)))?;
                 write!(f, " => ")?;
             }
             // Actual expression or positional argument
-            write!(f,"{}",self.child(self.arena.expr(assoc.actual)))?;
+            write!(f, "{}", self.child(self.arena.expr(assoc.actual)))?;
         }
 
         write!(f, ")")

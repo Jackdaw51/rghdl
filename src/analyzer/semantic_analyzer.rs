@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::analyzer::SemanticErrorKind::DuplicateDeclaration;
 use crate::analyzer::{
-    DeclRef, ExprId, ScopeKind, SemanticError, SemanticErrorKind, SymbolTable, TypeArena, TypeId,
-    TypeKind,
+    DeclRef, ExprId, ScopeId, ScopeKind, SemanticError, SemanticErrorKind, SymbolId, SymbolTable,
+    TypeArena, TypeId, TypeKind,
 };
 use crate::ast::*;
 use crate::elaborator::LibraryRegistry;
@@ -24,6 +24,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
         let type_boolean = registry.get_type("std", "standard", "boolean").unwrap();
         let type_integer = registry.get_type("std", "standard", "integer").unwrap();
         let type_real = registry.get_type("std", "standard", "real").unwrap();
+        let type_time = registry.get_type("std", "standard", "time").unwrap();
         let type_std_logic = registry
             .get_type("ieee", "std_logic_1164", "std_logic")
             .unwrap();
@@ -55,6 +56,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
             type_integer,
             type_boolean,
             type_real,
+            type_time,
             entity_architectures: HashMap::new(),
             source,
             expr_types: Vec::new(),
@@ -94,7 +96,10 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
         if !registry.libraries.contains_key(&lib_lower) {
             self.errors.push(SemanticError {
-                kind: SemanticErrorKind::UndefinedSymbol(format!("Library '{}' not found in registry", name)),
+                kind: SemanticErrorKind::UndefinedSymbol(format!(
+                    "Library '{}' not found in registry",
+                    name
+                )),
                 span: Span { start: 0, end: 0 }, // TODO
             });
         }
@@ -104,7 +109,10 @@ impl<'a> super::SemanticAnalyzer<'a> {
         let parts: Vec<&str> = path.split('.').collect();
         if parts.len() < 2 {
             self.errors.push(SemanticError {
-                kind: SemanticErrorKind::UndefinedSymbol(format!("Malformed use clause path '{}'", path)),
+                kind: SemanticErrorKind::UndefinedSymbol(format!(
+                    "Malformed use clause path '{}'",
+                    path
+                )),
                 span: Span { start: 0, end: 0 }, // TODO
             });
             return;
@@ -131,22 +139,28 @@ impl<'a> super::SemanticAnalyzer<'a> {
         if selector.eq_ignore_ascii_case("all") {
             // Bulk inject all package types into current global scope
             for (sym_id, type_id) in &pkg.types {
-                let _ = self.symbols.define(
-                    self.current_scope,
-                    *sym_id,
-                    DeclRef::Type(*type_id),
-                );
+                let _ = self
+                    .symbols
+                    .define(self.current_scope, *sym_id, DeclRef::Type(*type_id));
+            }
+            for (&sym_id, argument) in &pkg.functions {
+                let _ =
+                    self.symbols
+                        .define(self.current_scope, sym_id, DeclRef::Function(*argument));
             }
         } else {
             // Selective import of a single item
             let selector_lower = selector.to_lowercase();
             if let Some(&sym_id) = pkg.name_map.get(&selector_lower) {
                 if let Some(&type_id) = pkg.types.get(&sym_id) {
-                    let _ = self.symbols.define(
-                        self.current_scope,
-                        sym_id,
-                        DeclRef::Type(type_id),
-                    );
+                    let _ = self
+                        .symbols
+                        .define(self.current_scope, sym_id, DeclRef::Type(type_id));
+                }
+                if let Some(&type_id) = pkg.functions.get(&sym_id) {
+                    let _ =
+                        self.symbols
+                            .define(self.current_scope, sym_id, DeclRef::Function(type_id));
                 }
             } else {
                 self.errors.push(SemanticError {
@@ -184,6 +198,8 @@ impl<'a> super::SemanticAnalyzer<'a> {
         let prev_scope = self.current_scope;
         self.current_scope = entity_scope;
 
+        self.analyze_declarations(entity.generics_start, entity.generics_end, entity_scope);
+
         // Populate Ports into Entity Scope
         let port_slice =
             &self.ast.ports[entity.ports_start.0 as usize..entity.ports_end.0 as usize];
@@ -192,7 +208,14 @@ impl<'a> super::SemanticAnalyzer<'a> {
             let port_sym = self.symbols.interner.get_or_internalize(port.name);
             let absolute_port_id = PortId(entity.ports_start.0 + idx as u32);
 
-            let type_id = self.resolve_type_by_name(port.port_type);
+            // let type_id = self.resolve_type_by_name(port.port_type);
+            let type_id = match self.infer_expr_type(port.port_type, None) {
+                Ok(x) => x,
+                Err(a) => {
+                    self.errors.push(a);
+                    TypeId::ERROR
+                }
+            };
 
             if let Err(_s) = self.symbols.define(
                 entity_scope,
@@ -255,51 +278,52 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
         // Populate Declarations (Signals, Variables, Constants)
         // TODO enforce assignment rules over declarations
-        let decl_slice = &self.ast.decls[arch.decls_start.0 as usize..arch.decls_end.0 as usize];
-        for (idx, decl) in decl_slice.iter().enumerate() {
-            let absolute_decl_id = DeclId(arch.decls_start.0 + idx as u32);
+        self.analyze_declarations(arch.decls_start, arch.decls_end, arch_scope);
+        // let decl_slice = &self.ast.decls[arch.decls_start.0 as usize..arch.decls_end.0 as usize];
+        // for (idx, decl) in decl_slice.iter().enumerate() {
+        //     let absolute_decl_id = DeclId(arch.decls_start.0 + idx as u32);
 
-            let (name, decl_ref) = match decl {
-                Decl::Signal {
-                    name, decl_type, ..
-                } => (
-                    name,
-                    DeclRef::Signal {
-                        id: absolute_decl_id,
-                        type_id: self.resolve_type_by_name(decl_type),
-                    },
-                ),
-                Decl::Variable {
-                    name, decl_type, ..
-                } => (
-                    name,
-                    DeclRef::Variable {
-                        id: absolute_decl_id,
-                        type_id: self.resolve_type_by_name(decl_type),
-                    },
-                ),
-                Decl::Constant {
-                    name, decl_type, ..
-                } => (
-                    name,
-                    DeclRef::Constant {
-                        id: absolute_decl_id,
-                        type_id: self.resolve_type_by_name(decl_type),
-                    },
-                ),
-                _ => continue,
-            };
+        //     let (name, decl_ref) = match decl {
+        //         Decl::Signal {
+        //             name, decl_type, ..
+        //         } => (
+        //             name,
+        //             DeclRef::Signal {
+        //                 id: absolute_decl_id,
+        //                 type_id: self.resolve_type_by_name(decl_type),
+        //             },
+        //         ),
+        //         Decl::Variable {
+        //             name, decl_type, ..
+        //         } => (
+        //             name,
+        //             DeclRef::Variable {
+        //                 id: absolute_decl_id,
+        //                 type_id: self.resolve_type_by_name(decl_type),
+        //             },
+        //         ),
+        //         Decl::Constant {
+        //             name, decl_type, ..
+        //         } => (
+        //             name,
+        //             DeclRef::Constant {
+        //                 id: absolute_decl_id,
+        //                 type_id: self.resolve_type_by_name(decl_type),
+        //             },
+        //         ),
+        //         _ => continue,
+        //     };
 
-            let sym = self.symbols.interner.get_or_internalize(name);
-            let a = self.symbols.define(arch_scope, sym, decl_ref);
-            if a.is_err() {
-                self.errors.push(SemanticError {
-                    kind: DuplicateDeclaration(name.to_string()),
-                    span: Span { start: 0, end: 0 },
-                });
-                //TODO correct span
-            }
-        }
+        // let sym = self.symbols.interner.get_or_internalize(name);
+        // let a = self.symbols.define(arch_scope, sym, decl_ref);
+        // if a.is_err() {
+        //     self.errors.push(SemanticError {
+        //         kind: DuplicateDeclaration(name.to_string()),
+        //         span: Span { start: 0, end: 0 },
+        //     });
+        //     //TODO correct span
+        // }
+        // }
 
         let conc_ids =
             &self.ast.conc_stmt_lists[arch.stmts.start as usize..arch.stmts.end as usize];
@@ -309,6 +333,118 @@ impl<'a> super::SemanticAnalyzer<'a> {
         }
 
         self.current_scope = prev_scope;
+    }
+
+    pub fn analyze_declarations(
+        &mut self,
+        decls_start: DeclId,
+        decls_end: DeclId,
+        arch_scope: ScopeId,
+    ) {
+        let decl_slice = &self.ast.decls[decls_start.0 as usize..decls_end.0 as usize];
+
+        for (idx, decl) in decl_slice.iter().enumerate() {
+            let absolute_decl_id = DeclId(decls_start.0 + idx as u32);
+
+            match decl {
+                Decl::Signal {
+                    name,
+                    decl_type,
+                    default_val,
+                } => {
+                    self.register_declaration(
+                        name,
+                        decl_type,
+                        *default_val,
+                        arch_scope,
+                        |type_id| DeclRef::Signal {
+                            id: absolute_decl_id,
+                            type_id,
+                        },
+                    );
+                }
+                Decl::Constant {
+                    name,
+                    decl_type,
+                    default_val,
+                } => {
+                    self.register_declaration(
+                        name,
+                        decl_type,
+                        *default_val,
+                        arch_scope,
+                        |type_id| DeclRef::Constant {
+                            id: absolute_decl_id,
+                            type_id,
+                        },
+                    );
+                }
+                Decl::Variable {
+                    name,
+                    decl_type,
+                    default_val,
+                } => {
+                    self.register_declaration(
+                        name,
+                        decl_type,
+                        *default_val,
+                        arch_scope,
+                        |type_id| DeclRef::Variable {
+                            id: absolute_decl_id,
+                            type_id,
+                        },
+                    );
+                }
+                Decl::Component { name, .. } => {
+                    // Intern component names into the symbol table
+                    let _sym_id = self.symbols.interner.get_or_internalize(name);
+                }
+            }
+        }
+    }
+
+    fn register_declaration<F>(
+        &mut self,
+        name: &'a str,
+        decl_type_name: &'a str,
+        default_val: Option<ExprId>,
+        arch_scope: ScopeId,
+        make_decl_ref: F,
+    ) where
+        F: FnOnce(TypeId) -> DeclRef,
+    {
+        let symbol_id = self.symbols.interner.get_or_internalize(name);
+
+        let target_type_id = self.resolve_type_by_name(decl_type_name);
+
+        // Defualt assignmetn
+        if let Some(expr_id) = default_val {
+            // Supply target_type_id as the contextual hint to resolve aggregates like (others => ...)
+            match self.infer_expr_type(expr_id, Some(target_type_id)) {
+                Ok(expr_type) => {
+                    if expr_type != target_type_id && expr_type != TypeId::ERROR {
+                        self.errors.push(SemanticError {
+                            kind: SemanticErrorKind::AssignmentTypeMismatch {
+                                expected: target_type_id,
+                                found: expr_type,
+                            },
+                            span: self.ast.exprs[expr_id.0 as usize].span(),
+                        });
+                    }
+                }
+                Err(err) => {
+                    self.errors.push(err);
+                }
+            }
+        }
+
+        let decl_ref = make_decl_ref(target_type_id);
+        if let Err(_dup) = self.symbols.define(arch_scope, symbol_id, decl_ref) {
+            self.errors.push(SemanticError {
+                kind: SemanticErrorKind::DuplicateDeclaration(name.to_string()),
+                span: Span { start: 0, end: 0 },
+            });
+        }
     }
 
     /// Helper to dig through arrays/fields to find the root Identifier being assigned to
@@ -335,6 +471,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
             DeclRef::Constant { type_id, .. } => type_id,
             DeclRef::Type(type_id) => type_id,
             DeclRef::Entity { .. } | DeclRef::Architecture { .. } => TypeId::ERROR,
+            DeclRef::Function(type_id) => type_id,
         }
     }
 
@@ -346,7 +483,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
         }
     }
 
-    fn get_text(&self, span: &Span) -> &'a str {
+    pub fn get_text(&self, span: &Span) -> &'a str {
         &self.source[span.start..span.end]
     }
 
@@ -374,8 +511,26 @@ impl<'a> super::SemanticAnalyzer<'a> {
                 target,
                 expression,
                 label: _,
+                after,
             } => {
                 self.check_assignment_semantics(*target, *expression, true);
+                if let Some(delay_expr) = after {
+                    let delay_type = self.infer_expr_type(*delay_expr, Some(self.type_time));
+
+                    match delay_type {
+                        Ok(actual_type) if actual_type == self.type_time => {}
+                        Ok(found_type) => {
+                            self.errors.push(SemanticError {
+                                kind: SemanticErrorKind::AssignmentTypeMismatch {
+                                    expected: self.type_time,
+                                    found: found_type,
+                                },
+                                span: self.ast.exprs[delay_expr.0 as usize].span(),
+                            });
+                        }
+                        Err(err) => self.errors.push(err),
+                    }
+                }
             }
             _ => todo!(),
         }
@@ -405,7 +560,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
     fn check_sequential_stmt(&mut self, stmt: &SequentialStmt<'a>) {
         match stmt {
-            SequentialStmt::SequentialAssignment { target, expression } => {
+            SequentialStmt::SequentialAssignment { target, expression, after } => {
                 // Signal assignment `<=`
                 self.check_assignment_semantics(*target, *expression, true);
             }

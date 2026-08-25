@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     analyzer::TypeKind,
-    ast::ContextItem,
+    ast::{ContextItem, UnaryOp},
     elaborator::{
         ElaboratedConcurrentAssignment, ElaboratedDesign, ElaboratedProcess,
         ElaboratedSequentialStmt, EvaluatedExpr, EvaluatedValue, InstanceNode,
@@ -48,6 +48,22 @@ impl<'a> Display for ElaboratedFormatCtx<'a, EvaluatedExpr> {
                     op,
                     self.child(rhs_expr)
                 )
+            }
+            EvaluatedExpr::UnaryOp { op, expr } => {
+                let op_str = match op {
+                    UnaryOp::Not => "not ",
+                    UnaryOp::Neg => "-",
+                    UnaryOp::Plus => "+",
+                    UnaryOp::Abs => "abs ",
+                };
+                let inner_expr = &self.arena.exprs[expr.0 as usize];
+                // Wrap binary operations in parentheses when target of a unary operator
+                match inner_expr {
+                    EvaluatedExpr::BinaryOp { .. } => {
+                        write!(f, "{} ({})", op_str, self.child(inner_expr))
+                    }
+                    _ => write!(f, "{} {}", op_str, self.child(inner_expr)),
+                }
             }
         }
     }
@@ -98,13 +114,26 @@ impl<'a> Display for ElaboratedFormatCtx<'a, ElaboratedConcurrentAssignment> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let target_sig = &self.arena.signals[self.item.target_signal.0 as usize];
         let val_expr = &self.arena.exprs[self.item.value_expr.0 as usize];
-        writeln!(
-            f,
-            "{}{} <= {};",
-            self.pad(),
-            self.sym(target_sig.name),
-            self.child(val_expr)
-        )
+        dbg!(val_expr, self.item.value_expr);
+        if let Some(delay_id) = self.item.delay_expr {
+            let delay_expr = &self.arena.exprs[delay_id.0 as usize];
+            writeln!(
+                f,
+                "{}{} <= {} after {} fs;",
+                self.pad(),
+                self.sym(target_sig.name),
+                self.child(val_expr),
+                self.child(delay_expr)
+            )
+        } else {
+            writeln!(
+                f,
+                "{}{} <= {};",
+                self.pad(),
+                self.sym(target_sig.name),
+                self.child(val_expr)
+            )
+        }
     }
 }
 
@@ -167,6 +196,22 @@ impl<'a> Display for ElaboratedFormatCtx<'a, InstanceNode> {
         }
 
         writeln!(f, "entity {} is", unique_entity_name)?;
+        if !inst.generics.is_empty() {
+            writeln!(f, "\tgeneric (")?;
+            let len = inst.generics.len();
+            for (i, (name, val)) in inst.generics.iter().enumerate() {
+                let term = if i == len - 1 { "" } else { ";" };
+                // Generics omit mode (in/out) and append the resolved assignment (:= value)
+                writeln!(
+                    f,
+                    "\t\t{} : integer := {}{}",
+                    self.sym(*name),
+                    val.to_vhdl_string(&self.sa.symbols.interner),
+                    term
+                )?;
+            }
+            writeln!(f, "\t);")?;
+        }
         if !inst.ports.is_empty() {
             writeln!(f, "\tport (")?;
             for (i, port) in inst.ports.iter().enumerate() {
@@ -262,7 +307,8 @@ impl<'a> Display for ElaboratedFormatCtx<'a, TypeKind> {
             | TypeKind::Real { name }
             | TypeKind::Array { name, .. }
             | TypeKind::Record { name, .. }
-            | TypeKind::Function { name, .. } => {
+            | TypeKind::Function { name, .. }
+            | TypeKind::Physical { name, .. } => {
                 write!(f, "{}", self.sym(*name))
             }
             TypeKind::Error => write!(f, "<error_type>"),

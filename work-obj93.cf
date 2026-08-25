@@ -1,13 +1,32 @@
 v 4
-file . "test_files/tb_equiv.vhd" "50e1d2496882751be35bf0be2eca9782a208ceb8" "20260820140910.026":
-  entity tb_equiv at 1( 0) + 0 on 75;
-  architecture behavioral of tb_equiv at 7( 85) + 0 on 76;
-file . "test_files/and_gate_flat.vhd" "1bfba0ec481da9c5e65a476e3cc66c565a0ca8fa" "20260820140910.026":
-  entity and_gate_flat at 1( 0) + 0 on 73;
-  architecture dataflow of and_gate_flat at 11( 156) + 0 on 74;
-file . "test_files/and_gate.vhd" "7f5c92a401c578b6d47e1c81f2c2eaedaf803d8a" "20260820140910.026":
-  entity and_gate at 1( 0) + 0 on 71;
-  architecture dataflow of and_gate at 12( 181) + 0 on 72;
+file . "velha_test_files/02_primitives_flat.vhd" "a9d3678ef013f921d8fb57b2a3a25d75c0235fd0" "20260825150447.993":
+  entity inv_flat at 1( 0) + 0 on 178;
+  architecture rtl of inv_flat at 16( 256) + 0 on 179;
+file . "velha_test_files/02_primitives.vhd" "e75c74720b4a66ffa3843b2aca8da680967576ca" "20260825150447.992":
+  entity inv at 5( 306) + 0 on 169;
+  architecture rtl of inv at 12( 486) + 0 on 170;
+  entity and2 at 18( 616) + 0 on 171;
+  architecture rtl of and2 at 25( 788) + 0 on 172;
+  entity or2 at 31( 934) + 0 on 173;
+  architecture rtl of or2 at 38( 1060) + 0 on 174;
+  entity xor2 at 44( 1208) + 0 on 175;
+  architecture rtl of xor2 at 52( 1413) + 0 on 176;
+  architecture gate_level of xor2 at 57( 1488) + 0 on 177;
 file . "test_files/and_gate_flattened.vhd" "7b85d634edaf2749bb8a90bf81f6a479219596dd" "20260815225812.582":
   entity and_gate_flattened at 1( 0) + 0 on 21;
   architecture dataflow of and_gate_flattened at 9( 117) + 0 on 22;
+file . "test_files/and_gate.vhd" "7f5c92a401c578b6d47e1c81f2c2eaedaf803d8a" "20260820140910.026":
+  entity and_gate at 1( 0) + 0 on 71;
+  architecture dataflow of and_gate at 12( 181) + 0 on 72;
+file . "test_files/and_gate_flat.vhd" "1bfba0ec481da9c5e65a476e3cc66c565a0ca8fa" "20260820140910.026":
+  entity and_gate_flat at 1( 0) + 0 on 73;
+  architecture dataflow of and_gate_flat at 11( 156) + 0 on 74;
+file . "velha_test_files/01_nand2.vhd" "281a93fa8f469853e91f965e2153307775fa646e" "20260825145645.762":
+  entity nand2 at 5( 228) + 0 on 163;
+  architecture rtl of nand2 at 18( 432) + 0 on 164;
+file . "velha_test_files/01_nand2_flat.vhd" "e1824507c776a897f2284646bbee921541063a54" "20260825145645.763":
+  entity nand2_flat at 1( 0) + 0 on 165;
+  architecture rtl of nand2_flat at 14( 192) + 0 on 166;
+file . "velha_test_files/tb_equiv.vhd" "7778509112e4faa6b114ab7e530e5e812362e0b2" "20260825150447.993":
+  entity tb_equiv at 1( 0) + 0 on 180;
+  architecture behavioral of tb_equiv at 7( 85) + 0 on 181;

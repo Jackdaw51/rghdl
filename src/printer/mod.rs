@@ -1,5 +1,6 @@
 mod printer_ast;
 mod printer_elaborated;
+pub mod printer_sa;
 
 use crate::analyzer::{SemanticAnalyzer, SymbolId};
 use crate::ast::{AstArena, Expr, ExprId};
@@ -37,7 +38,7 @@ impl<'a, T> FormatCtx<'a, T> {
     fn get_expr(&self, expr_id: ExprId) -> &Expr<'a> {
         &self.arena.exprs[expr_id.0 as usize]
     }
-    
+
     fn get_line_from_span(&self, span: Span) -> u32 {
         let mut line = 1;
         for (c, i) in self.source.as_bytes().iter().enumerate() {
@@ -94,5 +95,57 @@ impl<'a, T> ElaboratedFormatCtx<'a, T> {
     /// Resolves a SymbolId to its String representation
     pub fn sym(&self, id: SymbolId) -> &str {
         &self.sa.symbols.interner.vec[id.0 as usize]
+    }
+}
+
+pub struct SAFormatCtx<'a, T> {
+    pub item: &'a T,
+    pub source: &'a str,
+    pub arena: &'a AstArena<'a>,
+    pub sa: &'a SemanticAnalyzer<'a>,
+    pub indent: usize,
+}
+
+impl<'a, T> SAFormatCtx<'a, T> {
+    fn get_text(&self, span: Span) -> &'a str {
+        &self.source[span.start..span.end]
+    }
+    fn child<U>(&self, item: &'a U) -> SAFormatCtx<'a, U> {
+        SAFormatCtx {
+            item: item,
+            source: self.source,
+            arena: self.arena,
+            indent: self.indent,
+            sa: self.sa,
+        }
+    }
+    fn child_indented<U>(&self, item: &'a U) -> SAFormatCtx<'a, U> {
+        SAFormatCtx {
+            item,
+            source: self.source,
+            arena: self.arena,
+            indent: self.indent + 1,
+            sa: self.sa,
+        }
+    }
+    fn pad(&self) -> String {
+        "\t".repeat(self.indent)
+    }
+    fn get_expr(&self, expr_id: ExprId) -> &Expr<'a> {
+        &self.arena.exprs[expr_id.0 as usize]
+    }
+
+    fn get_line_from_span(&self, span: Span) -> u32 {
+        let mut line = 1;
+        for (c, i) in self.source.as_bytes().iter().enumerate() {
+            if *i as char == '\n' {
+                line += 1;
+            }
+            if c == span.start {
+                break;
+            }
+        }
+
+        line
     }
 }

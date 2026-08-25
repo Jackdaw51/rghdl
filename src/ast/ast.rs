@@ -1,6 +1,13 @@
 use std::{fmt::Display, ops::Range};
 
-use crate::{ast::{Architecture, ArchitectureId, AstArena, BinaryOp, ConcStmtId, ConcurrentStmt, ContextId, ContextItem, Decl, DeclId, Entity, EntityId, Expr, ExprId, Port, PortId, SeqStmtId, SequentialStmt, UnaryOp}, parser::{Span, TokenKind}};
+use crate::{
+    ast::{
+        Architecture, ArchitectureId, AstArena, BinaryOp, ConcStmtId, ConcurrentStmt, ContextId,
+        ContextItem, Decl, DeclId, Entity, EntityId, Expr, ExprId, Port, PortId, SeqStmtId,
+        SequentialStmt, UnaryOp,
+    },
+    parser::{Span, TokenKind},
+};
 
 // Arena
 
@@ -60,21 +67,27 @@ impl<'a> AstArena<'a> {
         &self.decls[arch.decls_start.0 as usize..arch.decls_end.0 as usize]
     }
 
-    pub(crate) fn seq_statements(&'a self, range: Range<u32>) -> impl Iterator<Item = &SequentialStmt> {
+    pub(crate) fn seq_statements(
+        &'a self,
+        range: Range<u32>,
+    ) -> impl Iterator<Item = &SequentialStmt> {
         let seq_ids = &self.seq_stmt_lists[range.start as usize..range.end as usize];
 
         seq_ids
             .iter()
             .map(|id| &self.sequential_stmts[id.0 as usize])
     }
-    pub(crate) fn conc_statements(&self, range: Range<u32>) -> impl Iterator<Item = &ConcurrentStmt> {
+    pub(crate) fn conc_statements(
+        &self,
+        range: Range<u32>,
+    ) -> impl Iterator<Item = &ConcurrentStmt> {
         let conc_ids = &self.conc_stmt_lists[range.start as usize..range.end as usize];
         conc_ids
             .iter()
             .map(|id| &self.concurrent_stmts[id.0 as usize])
     }
-    
-    pub(crate) fn expr(&self, target: ExprId) -> &Expr<'a>  {
+
+    pub(crate) fn expr(&self, target: ExprId) -> &Expr<'a> {
         &self.exprs[target.0 as usize]
     }
 }
@@ -94,9 +107,7 @@ impl<'a> std::fmt::Display for AstArena<'a> {
     }
 }
 
-
 // Expression
-
 
 impl<'a> Expr<'a> {
     pub(crate) fn span(&self) -> Span {
@@ -111,13 +122,12 @@ impl<'a> Expr<'a> {
             Expr::Aggregate { span, .. } => *span,
             Expr::Slice { span, .. } => *span,
             Expr::RecordAccess { span, .. } => *span,
+            Expr::PhysicalLiteral { span, .. } => *span,
         }
     }
 }
 
-
 // Binary Operation
-
 
 impl BinaryOp {
     /// Returns (left_binding_power, right_binding_power)
@@ -128,7 +138,7 @@ impl BinaryOp {
                 (10, 11)
             }
 
-            BinaryOp::Arrow => (10, 11),
+            BinaryOp::Arrow => (5, 6),
 
             // Relational Operators
             BinaryOp::Eq
@@ -139,16 +149,13 @@ impl BinaryOp {
             | BinaryOp::Gte => (20, 21),
 
             // Adding Operators
-            BinaryOp::Add | BinaryOp::Sub => (30, 31),
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Concat => (30, 31),
 
             // Multiplying Operators
-            BinaryOp::Mul | BinaryOp::Div => (40, 41),
-
-            BinaryOp::Concat => (10, 11), //TODO reviex
+            BinaryOp::Mul | BinaryOp::Div => (50, 51),
         }
     }
 }
-
 
 impl Display for BinaryOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -174,9 +181,7 @@ impl Display for BinaryOp {
     }
 }
 
-
 // Unary Operator
-
 
 impl Display for UnaryOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -189,9 +194,7 @@ impl Display for UnaryOp {
     }
 }
 
-
 // Port
-
 
 impl<'a> PartialEq for Port<'a> {
     fn eq(&self, other: &Self) -> bool {

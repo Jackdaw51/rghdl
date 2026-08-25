@@ -1,4 +1,5 @@
 use crate::ast::{BinaryOp, Expr, ExprId, UnaryOp};
+use crate::exp_tks;
 use crate::parser::{ParseError, ParseResult, Parser, Span, TokenKind};
 
 impl<'a> Parser<'a> {
@@ -16,7 +17,7 @@ impl<'a> Parser<'a> {
         loop {
             // postfix: Parentheses for Call / Index / Slice
             if self.next_is(TokenKind::LParen) {
-                if 60 < min_bp {
+                if 70 < min_bp {
                     break;
                 }
                 lhs_id = self.parse_postfix_call_or_slice(lhs_id)?;
@@ -25,7 +26,7 @@ impl<'a> Parser<'a> {
 
             // postfix: Record Access (.field)
             if self.next_is(TokenKind::Dot) {
-                if 60 < min_bp {
+                if 70 < min_bp {
                     break;
                 }
                 self.advance();
@@ -85,7 +86,35 @@ impl<'a> Parser<'a> {
     fn parse_prefix(&mut self) -> Result<ExprId, ParseError> {
         let token = self.lexer.peek();
         match token.kind {
-            TokenKind::Number | TokenKind::CharLit | TokenKind::StringLit => {
+            TokenKind::Number => {
+                let num_span = token.span;
+                let num_text = self.get_text(num_span);
+                self.advance();
+
+                let num_expr = self.alloc_expr(Expr::Literal {
+                    text: num_text,
+                    span: num_span,
+                });
+
+                // VHDL physical literals (e.g., `1 ns`, `100 ms`) consist of a number followed by a unit identifier
+                if self.lexer.peek().kind == TokenKind::Identifier {
+                    let unit_tok = self.advance();
+                    let unit_str = self.get_text(unit_tok.span);
+                    let phys_span = Span {
+                        start: num_span.start,
+                        end: unit_tok.span.end,
+                    };
+
+                    Ok(self.alloc_expr(Expr::PhysicalLiteral {
+                        value: num_expr,
+                        unit: unit_str,
+                        span: phys_span,
+                    }))
+                } else {
+                    Ok(num_expr)
+                }
+            }
+            TokenKind::CharLit | TokenKind::StringLit => {
                 let expr = Expr::Literal {
                     text: self.get_text(token.span),
                     span: token.span,
@@ -165,25 +194,36 @@ impl<'a> Parser<'a> {
                 }))
             }
 
-            // Unary Operators (negative numbers, NOT)
-            TokenKind::OpMinus | TokenKind::OpPlus | TokenKind::KwAbs | TokenKind::KwNot => {
+            TokenKind::KwNot | TokenKind::KwAbs => {
                 let op = match token.kind {
-                    TokenKind::OpMinus => UnaryOp::Neg,
-                    TokenKind::OpPlus => UnaryOp::Plus,
                     TokenKind::KwNot => UnaryOp::Not,
                     TokenKind::KwAbs => UnaryOp::Abs,
                     _ => unreachable!(),
                 };
                 self.advance();
-
-                let right_expr = self.parse_expr_bp(50)?;
-
-                let expr = Expr::Unary {
+                // Factor level precedence: 60 (Higher than multiplying ops at 50)
+                let right_expr = self.parse_expr_bp(60)?;
+                Ok(self.alloc_expr(Expr::Unary {
                     op,
                     expr: right_expr,
                     span: token.span,
+                }))
+            }
+
+            TokenKind::OpMinus | TokenKind::OpPlus => {
+                let op = match token.kind {
+                    TokenKind::OpMinus => UnaryOp::Neg,
+                    TokenKind::OpPlus => UnaryOp::Plus,
+                    _ => unreachable!(),
                 };
-                Ok(self.alloc_expr(expr))
+                self.advance();
+                // Sign level precedence: 40 (Lower than multiplying 50, higher than adding 30)
+                let right_expr = self.parse_expr_bp(40)?;
+                Ok(self.alloc_expr(Expr::Unary {
+                    op,
+                    expr: right_expr,
+                    span: token.span,
+                }))
             }
 
             tk => {
