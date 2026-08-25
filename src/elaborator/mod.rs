@@ -122,7 +122,8 @@ pub struct InstanceNode {
 
 #[derive(Debug, Clone)]
 pub struct ElaboratedDesign {
-    pub top_instance: InstanceNode, //root
+    pub instances:Vec<InstanceId>,
+    pub root_instance: InstanceId
 }
 
 #[derive(Default, Debug)]

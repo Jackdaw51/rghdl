@@ -116,7 +116,7 @@ pub enum Expr<'a> {
         span: Span,
     },
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ContextItem<'a> {
     Library { name: &'a str },
     Use { path: &'a str },

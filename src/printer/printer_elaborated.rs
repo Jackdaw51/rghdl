@@ -1,13 +1,17 @@
-use std::fmt::Display;
+use std::fmt::Write;
+use std::{
+    collections::HashSet,
+    fmt::{self, Display},
+};
 
 use crate::{
-    analyzer::TypeKind,
-    ast::{ContextItem, UnaryOp},
+    analyzer::{SemanticAnalyzer, TypeKind},
+    ast::{ContextItem, PortMode, UnaryOp},
     elaborator::{
-        ElaboratedConcurrentAssignment, ElaboratedDesign, ElaboratedProcess,
-        ElaboratedSequentialStmt, EvaluatedExpr, EvaluatedValue, InstanceNode,
+        ElaboratedArena, ElaboratedConcurrentAssignment, ElaboratedDesign, ElaboratedProcess,
+        ElaboratedSequentialStmt, EvaluatedExpr, EvaluatedValue, InstanceId, InstanceNode,
     },
-    printer::ElaboratedFormatCtx,
+    printer::{ElaboratedFormatCtx, VhdlEmitter},
 };
 
 impl<'a> Display for ElaboratedFormatCtx<'a, EvaluatedValue> {
@@ -160,7 +164,10 @@ impl<'a> Display for ElaboratedFormatCtx<'a, ElaboratedProcess> {
 
 impl<'a> Display for ElaboratedFormatCtx<'a, ElaboratedDesign> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.child(&self.item.top_instance))
+        for i in &self.item.instances {
+            write!(f, "{}", self.child(&self.arena.instances[i.0 as usize]))?;
+        }
+        Ok(())
     }
 }
 
@@ -168,10 +175,10 @@ impl<'a> Display for ElaboratedFormatCtx<'a, InstanceNode> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inst = self.item;
 
-        for child_id in &inst.children {
-            let child_node = &self.arena.instances[child_id.0 as usize];
-            writeln!(f, "{}", self.child(child_node))?;
-        }
+        // for child_id in &inst.children {
+        //     let child_node = &self.arena.instances[child_id.0 as usize];
+        //     writeln!(f, "{}", self.child(child_node))?;
+        // }
 
         // let unique_entity_name = if inst.hierarchical_path == "top" {
         //     // Preserve exact top-level entity name for GHDL validation
@@ -314,4 +321,45 @@ impl<'a> Display for ElaboratedFormatCtx<'a, TypeKind> {
             TypeKind::Error => write!(f, "<error_type>"),
         }
     }
+}
+
+impl fmt::Display for PortMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PortMode::In => write!(f, "in"),
+            PortMode::Out => write!(f, "out"),
+            PortMode::InOut => write!(f, "inout"),
+            PortMode::Buffer => write!(f, "buffer"),
+        }
+    }
+}
+
+impl<'a> VhdlEmitter<'a> {
+    pub fn new(sa: &'a SemanticAnalyzer<'a>, arena: &'a ElaboratedArena) -> Self {
+        Self {
+            sa,
+            arena,
+            emitted_entities: HashSet::new(),
+        }
+    }
+
+    pub fn emit_design(&mut self, top: &ElaboratedDesign) -> Result<String, std::fmt::Error> {
+        let mut out = String::new();
+        for i in &top.instances{
+            let inst = &self.arena.instances[i.0 as usize];
+            if !self.emitted_entities.insert(inst.entity_name) {
+                continue;
+            }
+            let fm = ElaboratedFormatCtx{
+                item: top,
+                arena: self.arena,
+                sa: self.sa,
+                indent: 0,
+            };
+            write!(out, "{}", fm.child(&self.arena.instances[i.0 as usize]))?;
+        }
+        Ok(out)
+    }
+
+
 }

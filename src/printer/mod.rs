@@ -2,6 +2,8 @@ mod printer_ast;
 mod printer_elaborated;
 pub mod printer_sa;
 
+use std::collections::HashSet;
+
 use crate::analyzer::{SemanticAnalyzer, SymbolId};
 use crate::ast::{AstArena, Expr, ExprId};
 use crate::elaborator::ElaboratedArena;
@@ -60,6 +62,11 @@ impl<'a, T> FormatCtx<'a, T> {
     //             };
 }
 
+pub struct VhdlEmitter<'a> {
+    sa: &'a SemanticAnalyzer<'a>,
+    arena: &'a ElaboratedArena,
+    emitted_entities: HashSet<SymbolId>,
+}
 pub struct ElaboratedFormatCtx<'a, T> {
     pub item: &'a T,
     pub arena: &'a ElaboratedArena,

@@ -1,11 +1,13 @@
 #![doc = include_str!("../README.md")]
 
+use std::collections::HashMap;
 use std::fs;
 use std::{fmt::Write, process::Command};
 
-use crate::ast::PortMode;
-use crate::elaborator::{ElaboratedDesign, LibraryRegistry};
-use crate::printer::SAFormatCtx;
+use crate::analyzer::{TypeId, TypeKind};
+use crate::ast::{ContextItem, Entity, Expr, Port, PortMode};
+use crate::elaborator::{ElaboratedArena, ElaboratedDesign, LibraryRegistry};
+use crate::printer::{SAFormatCtx, VhdlEmitter};
 use crate::{
     analyzer::{SemanticAnalyzer, SymbolTable},
     elaborator::Elaborator,
@@ -23,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let path = "test_files/and_gate.vhd";
     // let path = "test_files/audio_testbench.vhd";
     // let path = "test_files/sine_wave_440hz.vhd";
-    let path = "velha_test_files/01_nand2.vhd";
+    // let path = "velha_test_files/01_nand2.vhd";
     let path = "velha_test_files/02_primitives.vhd";
     let source_string = fs::read_to_string(path).expect("Not found");
     // let source_string = fs::read_to_string("test_files/custom_types_pkg.vhd").expect("Not found");
@@ -35,10 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut parser = Parser::new(&source_string);
     parser.parse();
     if !parser.errors.is_empty() {
-        eprintln!(
-            "Parsing failed with {} error(s):",
-            parser.errors.len()
-        );
+        eprintln!("Parsing failed with {} error(s):", parser.errors.len());
         for err in &parser.errors {
             eprintln!(
                 "  {}",
@@ -52,7 +51,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
-    // Optional: Debug print parsed AST
     let mut ast_dump = String::new();
     write!(
         &mut ast_dump,
@@ -97,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let top_entity_ast = ast.entities.first().ok_or("No entity found in AST")?;
 
-    let top_instance = match elaborator.elaborate_top(top_entity_ast.name, &registry) {
+    let top_instance = match elaborator.elaborate_all(&registry, top_entity_ast.name) {
         Ok(inst) => inst,
         Err(err) => {
             eprintln!("Elaboration Error: {:?}", err);
@@ -105,15 +103,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let fmt_ctx = ElaboratedFormatCtx {
-        item: &top_instance,
-        arena: &elaborator.arena,
-        sa: &sa,
-        indent: 0,
-    };
-
-    let mut elaborated_vhdl = String::new();
-    write!(&mut elaborated_vhdl, "{}", fmt_ctx)?;
+    let elaborated_vhdl = VhdlEmitter::new(&sa, &elaborator.arena)
+        .emit_design(&top_instance)
+        .expect("Something went wrong with vhdl emitting");
 
     print!("=== Elaborated VHDL Output ===\n{}", elaborated_vhdl);
 
@@ -123,14 +115,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     fs::write(&flattened, &elaborated_vhdl)?;
 
-    let testbench =
-        generate_equivalence_testbench(&top_instance, top_entity_ast.name, &elaborator.sa);
+    let testbench = generate_all_equivalence_testbenches(&elaborator.arena, &sa);
 
     fs::write("velha_test_files/tb_equiv.vhd", &testbench)?;
+    run_all_equivalence_testbenches(name, &sa)?;
     // run_ghdl_validation(&flattened, top_entity_ast.name)?;
     // run_ghdl_validation("test_files/tb_equiv.vhd", "and_gate")?;
-
-    run_equivalence_testbench(name)?;
 
     Ok(())
     // println!("{:?}",a.symbols);
@@ -167,173 +157,329 @@ fn run_ghdl_validation(
     Ok(())
 }
 
-pub fn run_equivalence_testbench(analyzed_entity: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let velha = "velha_test_files";
-    let folder = velha;
-    let normal = format!("{folder}/{}.vhd", analyzed_entity);
-    let flat = format!("{folder}/{}_flat.vhd", analyzed_entity);
-    dbg!(&normal, &flat);
+/// Runs GHDL analysis once, then elaborates and simulates the specific testbench for `analyzed_entity`.
+pub fn run_equivalence_testbench(
+    file_prefix: &str,
+    analyzed_entity: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let folder = "velha_test_files";
+    let normal = format!("{folder}/{}.vhd", file_prefix);
+    let flat = format!("{folder}/{}_flat.vhd", file_prefix);
     let tb = format!("{folder}/tb_equiv.vhd");
+    let tb_entity_name = format!("tb_{}_equiv", analyzed_entity);
+
+    dbg!(&normal, &flat, &tb_entity_name);
+
     let analyze_status = Command::new("ghdl")
         .args(["-a", &normal, &flat, &tb])
         .status()?;
 
     if !analyze_status.success() {
-        return Err("Original GHDL failed to parse/analyze output of rghdl elaborator!".into());
+        return Err("Original GHDL failed to parse/analyze VHDL design files!".into());
     }
 
-    let synth_status = Command::new("ghdl").args(["-e", "tb_equiv"]).status()?;
+    let synth_status = Command::new("ghdl")
+        .args(["-e", &tb_entity_name])
+        .status()?;
 
     if !synth_status.success() {
-        return Err("Original GHDL failed to elaborate output of rghdl elaborator!".into());
+        return Err(format!(
+            "Original GHDL failed to elaborate testbench unit '{}'!",
+            tb_entity_name
+        )
+        .into());
     }
 
     let simulation_status = Command::new("ghdl")
-        .args(["-r", "tb_equiv", "--assert-level=error"])
+        .args(["-r", &tb_entity_name, "--assert-level=error"])
         .status()?;
 
     if !simulation_status.success() {
-        return Err("The simulation for the two elaborated files did not correspond".into());
+        return Err(format!("Equivalence test failed for entity '{}'!", analyzed_entity).into());
     }
 
-    println!("SUCCESS: the simulation behaved the same in both files!");
+    println!(
+        "SUCCESS: Simulation for '{}' matched exactly!",
+        tb_entity_name
+    );
     Ok(())
 }
-pub fn generate_equivalence_testbench(
-    design: &ElaboratedDesign,
-    orig_entity_name: &str,
-    sa: &crate::analyzer::SemanticAnalyzer,
-) -> String {
-    let top = &design.top_instance;
-    let flat_entity_name = format!("{}_flat", orig_entity_name);
 
-    let mut signal_decls = String::new();
-    let mut port_maps_orig = String::new();
-    let mut port_maps_flat = String::new();
-    let mut assertions = String::new();
+/// Analyzes all files once, then iterates over every entity in the AST to elaborate
+/// and simulate its corresponding testbench unit.
+pub fn run_all_equivalence_testbenches(
+    file_prefix: &str,
+    sa: &SemanticAnalyzer,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let folder = "velha_test_files";
+    let normal = format!("{folder}/{}.vhd", file_prefix);
+    let flat = format!("{folder}/{}_flat.vhd", file_prefix);
+    let tb = format!("{folder}/tb_equiv.vhd");
 
-    let mut input_ports: Vec<(String, String)> = Vec::new(); // (name, type_str)
-    let mut output_ports: Vec<(String, String, String)> = Vec::new(); // (port_name, sig_orig, sig_flat)
+    let analyze_status = Command::new("ghdl")
+        .args(["-a", &normal, &flat, &tb])
+        .status()?;
 
-    for port in &top.ports {
-        let port_name = sa.symbols.interner.get(port.name);
-        let port_type = sa.types.get(port.type_id);
+    if !analyze_status.success() {
+        return Err("Original GHDL failed to analyze VHDL source files!".into());
+    }
 
-        let a = match port_type {
-            Some(x) => match x {
-                analyzer::TypeKind::Enum { name, literals } => name,
-                analyzer::TypeKind::Integer { name } => todo!(),
-                analyzer::TypeKind::Real { name } => todo!(),
-                analyzer::TypeKind::Array { name, element_type } => todo!(),
-                analyzer::TypeKind::Record { name, fields } => todo!(),
-                analyzer::TypeKind::Function {
-                    name,
-                    args,
-                    return_type,
-                } => todo!(),
-                analyzer::TypeKind::Error => todo!(),
-                analyzer::TypeKind::Physical {
-                    name,
-                    primary_unit,
-                    units,
-                } => todo!(),
-            },
-            None => todo!(),
-        };
-        let port_type = sa.symbols.interner.get(*a);
+    for entity in &sa.ast.entities {
+        let tb_unit = format!("tb_{}_equiv", entity.name);
 
-        match port.mode {
-            PortMode::In => {
-                signal_decls.push_str(&format!("    signal {} : {};\n", port_name, port_type));
-                port_maps_orig.push_str(&format!("            {} => {},\n", port_name, port_name));
-                port_maps_flat.push_str(&format!("            {} => {},\n", port_name, port_name));
-                input_ports.push((port_name.into(), port_type.into()));
+        let synth_status = Command::new("ghdl").args(["-e", &tb_unit]).status()?;
+
+        if !synth_status.success() {
+            return Err(format!("GHDL elaboration failed for unit '{}'", tb_unit).into());
+        }
+
+        let sim_status = Command::new("ghdl")
+            .args(["-r", &tb_unit, "--assert-level=error"])
+            .status()?;
+
+        if !sim_status.success() {
+            return Err(format!("Equivalence check failed for unit '{}'", tb_unit).into());
+        }
+
+        println!(
+            "PASS: Unit '{}' equivalence verified successfully.",
+            tb_unit
+        );
+    }
+
+    Ok(())
+}
+/// Helper to resolve the type string directly from the AST port type expression.
+fn get_port_type_name<'a>(sa: &'a SemanticAnalyzer<'a>, port: &Port<'a>) -> &'a str {
+    let expr = &sa.ast.exprs[port.port_type.0 as usize];
+    match expr {
+        Expr::Identifier { name, .. } => name,
+        _ => "std_logic",
+    }
+}
+
+/// Emits standard libraries and forwards all user-defined library/use clauses from the AST.
+fn generate_context_header(sa: &SemanticAnalyzer) -> String {
+    let mut header =
+        String::from("library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n");
+
+    for item in &sa.ast.contexts {
+        match item {
+            ContextItem::Library { name } => {
+                if !name.eq_ignore_ascii_case("ieee") {
+                    header.push_str(&format!("library {};\n", name));
+                }
             }
-            PortMode::Out | PortMode::InOut | PortMode::Buffer => {
-                let sig_orig = format!("{}_orig", port_name);
-                let sig_flat = format!("{}_flat", port_name);
-
-                signal_decls.push_str(&format!("    signal {} : std_logic;\n", sig_orig));
-                signal_decls.push_str(&format!("    signal {} : std_logic;\n", sig_flat));
-
-                port_maps_orig.push_str(&format!("            {} => {},\n", port_name, sig_orig));
-                port_maps_flat.push_str(&format!("            {} => {},\n", port_name, sig_flat));
-
-                output_ports.push((port_name.into(), sig_orig, sig_flat));
+            ContextItem::Use { path } => {
+                if !path.to_lowercase().starts_with("ieee.std_logic_1164")
+                    && !path.to_lowercase().starts_with("ieee.numeric_std")
+                {
+                    header.push_str(&format!("use {};\n", path));
+                }
             }
         }
     }
+
+    header.push('\n');
+    header
+}
+
+/// Generates a VHDL file containing equivalence testbenches for ALL entities in the AST.
+pub fn generate_all_equivalence_testbenches(
+    arena: &ElaboratedArena,
+    sa: &SemanticAnalyzer,
+) -> String {
+    let mut full_tb_code = String::new();
+
+    for entity in &sa.ast.entities {
+        full_tb_code.push_str(&generate_context_header(sa));
+        let single_tb = generate_single_entity_tb(entity, arena, sa);
+        full_tb_code.push_str(&single_tb);
+        full_tb_code.push_str("\n-- ========================================================\n\n");
+    }
+
+    full_tb_code
+}
+
+fn generate_single_entity_tb(
+    entity: &Entity,
+    _arena: &ElaboratedArena,
+    sa: &SemanticAnalyzer,
+) -> String {
+    let orig_entity_name = entity.name;
+    let flat_entity_name = format!("{}_flat", orig_entity_name);
+    let tb_entity_name = format!("tb_{}_equiv", orig_entity_name);
+
+    // All architectures targeting this specific entity
+    let target_archs: Vec<&str> = sa
+        .ast
+        .architectures
+        .iter()
+        .filter_map(|arch| {
+            let entity_span_str = &sa.source[arch.entity_name.start..arch.entity_name.end];
+            if entity_span_str.eq_ignore_ascii_case(orig_entity_name) {
+                Some(arch.name)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let target_archs = if target_archs.is_empty() {
+        vec!["behavioral"]
+    } else {
+        target_archs
+    };
+
+    let mut signal_decls = String::new();
+    let mut port_maps: HashMap<&str, String> =
+        target_archs.iter().map(|&a| (a, String::new())).collect();
+    let mut flat_port_map = String::new();
+
+    let mut input_ports: Vec<(String, String)> = Vec::new();
+    let mut output_ports: Vec<(String, String)> = Vec::new();
+
+    let ports = &sa.ast.ports[entity.ports_start.0 as usize..entity.ports_end.0 as usize];
+
+    for port in ports {
+        let port_name = port.name;
+        let type_str = get_port_type_name(sa, port);
+
+        match port.mode {
+            PortMode::In => {
+                signal_decls.push_str(&format!("    signal {} : {};\n", port_name, type_str));
+                for arch in &target_archs {
+                    port_maps
+                        .get_mut(arch)
+                        .unwrap()
+                        .push_str(&format!("        {} => {},\n", port_name, port_name));
+                }
+                flat_port_map.push_str(&format!("        {} => {},\n", port_name, port_name));
+                input_ports.push((port_name.to_string(), type_str.to_string()));
+            }
+            PortMode::Out | PortMode::InOut | PortMode::Buffer => {
+                for arch in &target_archs {
+                    let sig_arch = format!("{}_{}", port_name, arch);
+                    signal_decls.push_str(&format!("    signal {} : {};\n", sig_arch, type_str));
+                    port_maps
+                        .get_mut(arch)
+                        .unwrap()
+                        .push_str(&format!("        {} => {},\n", port_name, sig_arch));
+                }
+
+                let sig_flat = format!("{}_flat", port_name);
+                signal_decls.push_str(&format!("    signal {} : {};\n", sig_flat, type_str));
+                flat_port_map.push_str(&format!("        {} => {},\n", port_name, sig_flat));
+
+                output_ports.push((port_name.to_string(), type_str.to_string()));
+            }
+        }
+    }
+
+    let mut instance_blocks = String::new();
+    for &arch in &target_archs {
+        let raw_pm = &port_maps[arch];
+        let clean_pm = raw_pm.trim_end().strip_suffix(',').unwrap_or(raw_pm);
+        instance_blocks.push_str(&format!(
+            "    U_{}: entity work.{}({})\n        port map (\n{}\n        );\n\n",
+            arch.to_uppercase(),
+            orig_entity_name,
+            arch,
+            clean_pm
+        ));
+    }
+
+    let clean_flat_pm = flat_port_map
+        .trim_end()
+        .strip_suffix(',')
+        .unwrap_or(&flat_port_map);
+    instance_blocks.push_str(&format!(
+        "    U_FLAT: entity work.{}\n        port map (\n{}\n        );\n\n",
+        flat_entity_name, clean_flat_pm
+    ));
 
     let mut stimulus_process = String::new();
     let num_inputs = input_ports.len();
 
     if num_inputs > 0 {
-        // Cap truth table generation to prevent massive files (up to 2^8 = 256 vectors)
         let num_vectors = 1 << num_inputs.min(8);
 
         for vec in 0..num_vectors {
             stimulus_process.push_str(&format!("        -- Stimulus Vector {}\n", vec));
 
-            // Apply bit pattern across all input signals
-            for (idx, (in_name, _)) in input_ports.iter().enumerate() {
-                let bit_val = if (vec & (1 << idx)) != 0 {
-                    "'1'"
-                } else {
-                    "'0'"
+            for (idx, (in_name, type_str)) in input_ports.iter().enumerate() {
+                let is_bit_high = (vec & (1 << idx)) != 0;
+                let val_str = match type_str.as_str() {
+                    "boolean" => {
+                        if is_bit_high {
+                            "true"
+                        } else {
+                            "false"
+                        }
+                    }
+                    "integer" => {
+                        if is_bit_high {
+                            "1"
+                        } else {
+                            "0"
+                        }
+                    }
+                    _ => {
+                        if is_bit_high {
+                            "'1'"
+                        } else {
+                            "'0'"
+                        }
+                    }
                 };
-                stimulus_process.push_str(&format!("        {} <= {};\n", in_name, bit_val));
+                stimulus_process.push_str(&format!("        {} <= {};\n", in_name, val_str));
             }
 
             stimulus_process.push_str("        wait for 10 ns;\n");
 
-            // Assert output equivalence between original and flattened entities
-            for (port_name, sig_orig, sig_flat) in &output_ports {
-                stimulus_process.push_str(&format!(
-                    "        assert {} = {}\n            report \"Equivalence Mismatch on port '{}' for vector {}\" severity error;\n",
-                    sig_orig, sig_flat, port_name, vec
-                ));
+            for (port_name, _) in &output_ports {
+                let sig_flat = format!("{}_flat", port_name);
+                for &arch in &target_archs {
+                    let sig_arch = format!("{}_{}", port_name, arch);
+                    stimulus_process.push_str(&format!(
+                        "        assert {} = {}\n            report \"Equivalence Mismatch on entity '{}', port '{}' (arch '{}') for vector {}\" severity error;\n",
+                        sig_flat, sig_arch, orig_entity_name, port_name, arch, vec
+                    ));
+                }
             }
             stimulus_process.push('\n');
         }
     } else {
-        // no input ports
         stimulus_process.push_str("        wait for 10 ns;\n");
-        for (port_name, sig_orig, sig_flat) in &output_ports {
-            stimulus_process.push_str(&format!(
-                "        assert {} = {}\n            report \"Equivalence Mismatch on port '{}'\" severity error;\n",
-                sig_orig, sig_flat, port_name
-            ));
+        for (port_name, _) in &output_ports {
+            let sig_flat = format!("{}_flat", port_name);
+            for &arch in &target_archs {
+                let sig_arch = format!("{}_{}", port_name, arch);
+                stimulus_process.push_str(&format!(
+                    "        assert {} = {}\n            report \"Equivalence Mismatch on entity '{}', port '{}' (arch '{}')\" severity error;\n",
+                    orig_entity_name, sig_arch, sig_flat, port_name, arch
+                ));
+            }
         }
     }
 
     format!(
-        r#"library ieee;
-use ieee.std_logic_1164.all;
+        r#"entity {} is
+end entity {};
 
-entity tb_equiv is
-end entity tb_equiv;
-
-architecture behavioral of tb_equiv is
+architecture behavioral of {} is
 {}
 begin
-    U_ORIG: entity work.{}
-        port map (
-{}        );
-
-    U_FLAT: entity work.{}
-        port map (
-{}        );
-
-    STIMULUS_PROC: process
+{}    STIMULUS_PROC: process
     begin
 {}        wait;
     end process;
 end architecture;"#,
+        tb_entity_name,
+        tb_entity_name,
+        tb_entity_name,
         signal_decls,
-        orig_entity_name,
-        port_maps_orig.trim_end_matches(",\n"),
-        flat_entity_name,
-        port_maps_flat.trim_end_matches(",\n"),
+        instance_blocks,
         stimulus_process
     )
 }

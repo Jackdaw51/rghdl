@@ -26,38 +26,59 @@ impl<'a> Elaborator<'a> {
         }
     }
 
-    pub fn elaborate_top(
+    /// Elaborates all entity and architecture combinations present in the AST file.
+    pub fn elaborate_all(
         &mut self,
-        top_entity_name: &str,
         registry: &LibraryRegistry,
+        top_entity_name: &str,
     ) -> Result<ElaboratedDesign, ElaboratorError> {
-        let entity = self
-            .ast
-            .entities
-            .iter()
-            .find(|e| e.name == top_entity_name)
-            .ok_or_else(|| ElaboratorError::EntityNotFound(top_entity_name.to_string()))?;
+        let mut root_instances = Vec::new();
+        let mut root_instance= InstanceId(0);
+        for entity in &self.ast.entities {
+            // Find all architectures corresponding to this entity
+            let matching_archs: Vec<_> = self
+                .ast
+                .architectures
+                .iter()
+                .filter(|arch| {
+                    let span_text = &self.sa.source[arch.entity_name.start..arch.entity_name.end];
+                    span_text == entity.name
+                })
+                .collect();
 
-        let arch = self
-            .ast
-            .architectures
-            .iter()
-            .find(|a| {
-                let span_text = &self.sa.source[a.entity_name.start..a.entity_name.end];
-                span_text == top_entity_name
-            })
-            .ok_or_else(|| ElaboratorError::ArchitectureNotFound(top_entity_name.to_string()))?;
+            if matching_archs.is_empty() {
+                return Err(ElaboratorError::ArchitectureNotFound(
+                    entity.name.to_string(),
+                ));
+            }
 
-        let mut top_env = Environment::new();
-        self.elaborate_context_items(&mut top_env, registry)?;
+            for arch in matching_archs {
+                let mut env = Environment::new();
+                self.elaborate_context_items(&mut env, registry)?;
 
-        let top_sym = self.get_symbol_unw(top_entity_name);
-        let top_inst_id =
-            self.elaborate_instance(top_sym, entity, arch, &HashMap::new(), "top", &mut top_env)?;
+                let entity_sym = self.get_symbol_unw(entity.name);
 
-        let top_node = self.arena.instances[top_inst_id.0 as usize].clone();
+                // Distinguish instance hierarchical paths when an entity has multiple architectures
+                let root_path = format!("{}_{}", entity.name, arch.name);
+
+                let inst_id = self.elaborate_instance(
+                    entity_sym,
+                    entity,
+                    arch,
+                    &HashMap::new(),
+                    &root_path,
+                    &mut env,
+                )?;
+                root_instances.push(inst_id);
+                if entity.name == top_entity_name {
+                    root_instance = inst_id;
+                }
+            }
+        }
+
         Ok(ElaboratedDesign {
-            top_instance: top_node,
+            instances: root_instances,
+            root_instance,
         })
     }
 
@@ -777,7 +798,6 @@ impl<'a> Elaborator<'a> {
                             span: Span { start: 0, end: 0 }, // TODO correct span
                         }
                     })?;
-                    dbg!("AAAA");
 
                     // Special-case handling for standard libraries or work aliases
                     if name.eq_ignore_ascii_case("std") || name.eq_ignore_ascii_case("ieee") {
