@@ -1,3 +1,4 @@
+use crate::analyzer::SymbolInterner;
 use crate::ast::{AstArena, Port, PortId, PortMode};
 use crate::printer::FormatCtx;
 use crate::{
@@ -6,16 +7,21 @@ use crate::{
 };
 
 impl<'a> Parser<'a> {
-    pub(crate) fn new(source: &'a str) -> Self {
+    pub(crate) fn new(source: &'a str, interner: &'a mut SymbolInterner) -> Self {
         Self {
             lexer: Lexer::new(source),
             arena: AstArena::new(),
             source,
             errors: vec![],
+            interner,
         }
     }
 
-    pub(crate) fn parse(&mut self) {
+    pub fn intern(&mut self, name: Span) -> crate::analyzer::SymbolId {
+        self.interner.get_or_internalize(self.get_text(name))
+    }
+
+    pub(crate) fn parse(&mut self) -> ParseResult<()> {
         loop {
             let next = self.lexer.peek();
             match next.kind {
@@ -29,21 +35,15 @@ impl<'a> Parser<'a> {
                     let res = self.parse_architecture();
                     match res {
                         Ok(x) => {}
-                        Err(x) => {
-                            println!(
-                                "{}",
-                                FormatCtx {
-                                    item: &x,
-                                    source: self.source,
-                                    arena: &self.arena,
-                                    indent: 0
-                                }
-                            );
-                        }
+                        Err(x) => {}
                     }
                 }
                 TokenKind::KwLibrary | TokenKind::KwUse => {
-                    let res = self.parse_lib();
+                    let lib = self.parse_lib();
+                    if let Err(x) = lib {
+                        self.errors.push(x);
+                        self.fast_forward_to_semicolon()?;
+                    }
                 }
                 TokenKind::Eof => break,
                 x => {
@@ -57,9 +57,10 @@ impl<'a> Parser<'a> {
                 }
             };
         }
+        Ok(())
     }
 
-    pub(super) fn print_errors(&self) {
+    pub(crate) fn print_errors(&self) {
         for error in &self.errors {
             println!(
                 "{:?}, line {}",
@@ -150,15 +151,15 @@ impl<'a> Parser<'a> {
     /// like `a, b, c : in std_logic`.
     pub fn parse_port(&mut self) -> ParseResult<()> {
         let mut names = Vec::new();
-
+        let start = self.lexer.current_pos;
         // Parse comma-separated identifiers
         let first_tok = self.expect(TokenKind::Identifier)?;
-        names.push((self.get_text(first_tok.span), first_tok.span));
+        names.push(self.intern(first_tok.span));
 
         while self.next_is(TokenKind::Comma) {
             self.advance(); // Consume ','
             let tok = self.expect(TokenKind::Identifier)?;
-            names.push((self.get_text(tok.span), tok.span));
+            names.push(self.intern(tok.span));
         }
 
         self.expect(TokenKind::Colon)?;
@@ -187,14 +188,13 @@ impl<'a> Parser<'a> {
         let port_type = self.parse_expression()?;
 
         // Allocate each port consecutively so the arena slice range stays intact
-        for (name, name_span) in names {
+        for name in names {
             let port = Port {
                 name,
-                name_span,
                 mode,
                 port_type,
             };
-            self.arena.alloc_port(port);
+            self.arena.alloc_port(port,Span::new(start, self.lexer.current_pos));
         }
 
         Ok(())

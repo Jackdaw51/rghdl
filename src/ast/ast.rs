@@ -6,69 +6,74 @@ use crate::{
         ContextItem, Decl, DeclId, Entity, EntityId, Expr, ExprId, Port, PortId, SeqStmtId,
         SequentialStmt, UnaryOp,
     },
-    parser::{Span, TokenKind},
+    parser::Span,
 };
 
 // Arena
 
-impl<'a> AstArena<'a> {
+impl AstArena {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn alloc_port(&mut self, port: Port<'a>) -> PortId {
+    pub fn alloc_port(&mut self, port: Port, span: Span) -> PortId {
         let id = self.ports.len() as u32;
         self.ports.push(port);
+        self.port_spans.push(span);
         PortId(id)
     }
 
-    pub fn alloc_entity(&mut self, entity: Entity<'a>) -> EntityId {
+    pub fn alloc_entity(&mut self, entity: Entity) -> EntityId {
         let id = self.entities.len() as u32;
         self.entities.push(entity);
         EntityId(id)
     }
-    pub fn alloc_context(&mut self, item: ContextItem<'a>) -> ContextId {
+    pub fn alloc_context(&mut self, item: ContextItem) -> ContextId {
         let id = self.contexts.len() as u32;
         self.contexts.push(item);
         ContextId(id)
     }
-    pub fn alloc_decl(&mut self, decl: Decl<'a>) -> DeclId {
+    pub fn alloc_decl(&mut self, decl: Decl, span: Span) -> DeclId {
         let id = self.decls.len() as u32;
         self.decls.push(decl);
+        self.decl_span.push(span);
         DeclId(id)
     }
-    pub fn alloc_conc_stmt(&mut self, stmt: ConcurrentStmt<'a>) -> ConcStmtId {
+    pub fn alloc_conc_stmt(&mut self, stmt: ConcurrentStmt, span: Span) -> ConcStmtId {
         let id = self.concurrent_stmts.len() as u32;
         self.concurrent_stmts.push(stmt);
+        self.conc_span.push(span);
         ConcStmtId(id)
     }
-    pub fn alloc_seq_stmt(&mut self, stmt: SequentialStmt<'a>) -> SeqStmtId {
+    pub fn alloc_seq_stmt(&mut self, stmt: SequentialStmt, span: Span) -> SeqStmtId {
         let id = self.sequential_stmts.len() as u32;
         self.sequential_stmts.push(stmt);
+        self.seq_span.push(span);
         SeqStmtId(id)
     }
 
-    pub fn alloc_architecture(&mut self, arch: Architecture<'a>) -> ArchitectureId {
+    pub fn alloc_architecture(&mut self, arch: Architecture) -> ArchitectureId {
         let id = self.architectures.len() as u32;
         self.architectures.push(arch);
         ArchitectureId(id)
     }
 
-    pub(crate) fn alloc_expr(&mut self, expr: Expr<'a>) -> ExprId {
+    pub(crate) fn alloc_expr(&mut self, expr: Expr, span: Span) -> ExprId {
         let id = self.exprs.len() as u32;
         self.exprs.push(expr);
+        self.expr_span.push(span);
         ExprId(id)
     }
-    pub fn ports(&self, entity: &Entity) -> &[Port<'a>] {
+    pub fn ports(&self, entity: &Entity) -> &[Port] {
         &self.ports[entity.ports_start.0 as usize..entity.ports_end.0 as usize]
     }
 
-    pub(crate) fn declarations(&self, arch: &Architecture<'a>) -> &[Decl<'a>] {
+    pub(crate) fn declarations(&self, arch: &Architecture) -> &[Decl] {
         &self.decls[arch.decls_start.0 as usize..arch.decls_end.0 as usize]
     }
 
     pub(crate) fn seq_statements(
-        &'a self,
+        &self,
         range: Range<u32>,
     ) -> impl Iterator<Item = &SequentialStmt> {
         let seq_ids = &self.seq_stmt_lists[range.start as usize..range.end as usize];
@@ -87,12 +92,16 @@ impl<'a> AstArena<'a> {
             .map(|id| &self.concurrent_stmts[id.0 as usize])
     }
 
-    pub(crate) fn expr(&self, target: ExprId) -> &Expr<'a> {
+    pub(crate) fn expr(&self, target: ExprId) -> &Expr {
         &self.exprs[target.0 as usize]
+    }
+    pub(crate) fn expressions(&self, range: Range<u32>) -> impl Iterator<Item = &Expr> {
+        let conc_ids = &self.expr_lists[range.start as usize..range.end as usize];
+        conc_ids.iter().map(|id| &self.exprs[id.0 as usize])
     }
 }
 
-impl<'a> std::fmt::Display for AstArena<'a> {
+impl std::fmt::Display for AstArena {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -109,23 +118,23 @@ impl<'a> std::fmt::Display for AstArena<'a> {
 
 // Expression
 
-impl<'a> Expr<'a> {
-    pub(crate) fn span(&self) -> Span {
-        match self {
-            Expr::Literal { span, .. } => *span,
-            Expr::Identifier { span, .. } => *span,
-            Expr::Binary { span, .. } => *span,
-            Expr::Unary { span, .. } => *span,
-            Expr::Grouping { span, .. } => *span,
-            Expr::CallOrIndex { span, .. } => *span,
-            Expr::Others { span } => *span,
-            Expr::Aggregate { span, .. } => *span,
-            Expr::Slice { span, .. } => *span,
-            Expr::RecordAccess { span, .. } => *span,
-            Expr::PhysicalLiteral { span, .. } => *span,
-        }
-    }
-}
+// impl Expr {
+//     pub(crate) fn span(&self) -> Span {
+//         match self {
+//             Expr::Literal { span, .. } => *span,
+//             Expr::Identifier { span, .. } => *span,
+//             Expr::Binary { span, .. } => *span,
+//             Expr::Unary { span, .. } => *span,
+//             Expr::Grouping { span, .. } => *span,
+//             Expr::CallOrIndex { span, .. } => *span,
+//             Expr::Others { span } => *span,
+//             Expr::Aggregate { span, .. } => *span,
+//             Expr::Slice { span, .. } => *span,
+//             Expr::RecordAccess { span, .. } => *span,
+//             Expr::PhysicalLiteral { span, .. } => *span,
+//         }
+//     }
+// }
 
 // Binary Operation
 
@@ -153,6 +162,7 @@ impl BinaryOp {
 
             // Multiplying Operators
             BinaryOp::Mul | BinaryOp::Div => (50, 51),
+            BinaryOp::RecordAccess | BinaryOp::CallOrIndex => (70, 71),
         }
     }
 }
@@ -177,6 +187,8 @@ impl Display for BinaryOp {
             BinaryOp::Nor => write!(f, "nor"),
             BinaryOp::Arrow => write!(f, "=>"),
             BinaryOp::Concat => write!(f, "&"),
+            BinaryOp::RecordAccess => write!(f, "."),
+            BinaryOp::CallOrIndex => write!(f, "()"),
         }
     }
 }
@@ -196,7 +208,7 @@ impl Display for UnaryOp {
 
 // Port
 
-impl<'a> PartialEq for Port<'a> {
+impl PartialEq for Port {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name && self.mode == other.mode && self.port_type == other.port_type
     }

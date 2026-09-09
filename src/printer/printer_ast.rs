@@ -1,7 +1,6 @@
 use std::fmt::Display;
 use std::ops::Range;
 
-use crate::analyzer::{SemanticError, SemanticErrorKind};
 use crate::ast::{
     AstArena, ConcurrentStmt, ContextItem, Decl, ElsifBranch, Entity, Expr, Port, PortId,
     SequentialStmt, UnaryOp,
@@ -13,7 +12,7 @@ impl<'a> Display for FormatCtx<'a, ParseError> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.item.kind {
             crate::parser::ParseErrorKind::ExpectedToken { expected, found } => {
-                write!(f, "Expected '{expected}', found '{found}'")
+                write!(f, "Expected '{expected}', found '{found}'",)
             }
             crate::parser::ParseErrorKind::ExpectedTokens { expected, found } => {
                 let valid_tokens: Vec<_> = expected
@@ -23,28 +22,28 @@ impl<'a> Display for FormatCtx<'a, ParseError> {
                     .collect();
                 write!(
                     f,
-                    "Expected one of {}, found {found}",
-                    valid_tokens.join(", ")
+                    "Expected one of '{}', found '{found}'",
+                    valid_tokens.join(", "),
                 )
             }
             crate::parser::ParseErrorKind::NameMismatch {
-                expected_span,
-                found_span,
+                expected_symbol,
+                found_symbol,
             } => write!(
                 f,
-                "Name mismatch: expected {}, found {} on line {}",
-                self.get_text(expected_span),
-                self.get_text(found_span),
-                self.get_line_from_span(found_span)
+                "Name mismatch: expected {}, found {}",
+                self.get_symbol(expected_symbol),
+                self.get_symbol(found_symbol),
             ),
             crate::parser::ParseErrorKind::UnexpectedEof => {
                 write!(f, "Unexpected end of file")
             }
-        }
+        }?;
+        write!(f, " on line {}", self.get_line_from_span(self.item.span))
     }
 }
 
-impl<'a> Display for FormatCtx<'a, AstArena<'a>> {
+impl<'a> Display for FormatCtx<'a, AstArena> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let arena = self.item;
 
@@ -60,11 +59,12 @@ impl<'a> Display for FormatCtx<'a, AstArena<'a>> {
 
         writeln!(f)?;
         for a in &arena.architectures {
+            let name = self.get_symbol(a.name);
             writeln!(
                 f,
                 "architecture {} of {} is",
-                a.name,
-                self.get_text(a.entity_name)
+                name,
+                self.get_symbol(a.entity_name)
             )?;
             for decls in &arena.decls[a.decls_start.0 as usize..a.decls_end.0 as usize] {
                 write!(f, "{}", self.child_indented(decls))?;
@@ -77,23 +77,18 @@ impl<'a> Display for FormatCtx<'a, AstArena<'a>> {
                 write!(f, "{}", self.child_indented(stmt))?;
             }
 
-            write!(f, "end {};", a.name)?;
+            write!(f, "end {};", name)?;
         }
         Ok(())
     }
 }
 
-impl<'a> Display for FormatCtx<'a, Expr<'a>> {
+impl<'a> Display for FormatCtx<'a, Expr> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.item {
-            Expr::Literal { text, span: _ } => write!(f, "{}", text),
-            Expr::Identifier { span, .. } => write!(f, "{}", self.get_text(*span)),
-            Expr::Binary {
-                op,
-                lhs,
-                rhs,
-                span: _,
-            } => {
+            Expr::Literal { name } => write!(f, "{}", self.get_symbol(*name)),
+            Expr::Identifier { name } => write!(f, "{}", self.get_symbol(*name)),
+            Expr::Binary { op, lhs, rhs } => {
                 write!(
                     f,
                     "{} {} {}",
@@ -102,31 +97,36 @@ impl<'a> Display for FormatCtx<'a, Expr<'a>> {
                     self.child(self.get_expr(*rhs))
                 )
             }
-            Expr::Unary { op, expr, span: _ } => {
+            Expr::Unary { op, expr } => {
                 let _ = write!(f, "{}", op);
                 if matches!(op, UnaryOp::Abs | UnaryOp::Not) {
                     let _ = write!(f, " ");
                 };
                 write!(f, "{}", self.child(self.get_expr(*expr)))
             }
-            Expr::Grouping { expr, span: _ } => {
+            Expr::Grouping { expr } => {
                 write!(f, "({})", self.child(self.get_expr(*expr)))
             }
-            Expr::CallOrIndex {
-                callee: _,
-                args: _,
-                span,
-            } => {
-                write!(f, "{}", self.get_text(*span))
+            Expr::CallOrIndex { callee, args } => {
+                write!(f, "{}", self.child(self.get_expr(*callee)))?;
+                write!(f, "(");
+                for id in self.arena.expressions(args.clone()) {
+                    write!(f, "{}", self.child(id))?;
+                }
+                write!(f, ")")
             }
-            Expr::Others { span: _ } => write!(f, "others"),
-            Expr::Aggregate { elements: _, span } => write!(f, "{}", self.get_text(*span)),
+            Expr::Others => write!(f, "others"),
+            Expr::Aggregate { elements } => {
+                for expr in self.arena.expressions(elements.clone()) {
+                    write!(f, "{}", self.child(expr))?;
+                }
+                Ok(())
+            }
             Expr::Slice {
                 target,
                 direction,
                 left,
                 right,
-                span: _,
             } => write!(
                 f,
                 "{}({} {} {})",
@@ -135,17 +135,24 @@ impl<'a> Display for FormatCtx<'a, Expr<'a>> {
                 direction,
                 self.child(self.get_expr(*right))
             ),
-            Expr::RecordAccess {
-                target,
-                field,
-                span: _,
-            } => write!(f, "{}.{}", self.child(self.get_expr(*target)), field),
-            Expr::PhysicalLiteral { value, unit, span } => todo!(),
+            Expr::RecordAccess { target, field } => write!(
+                f,
+                "{}.{}",
+                self.child(self.get_expr(*target)),
+                self.get_symbol(*field)
+            ),
+            Expr::PhysicalLiteral { value, unit } => write!(
+                f,
+                "{} {}",
+                self.child(self.get_expr(*value)),
+                self.get_symbol(*unit)
+            ),
+            Expr::All => write!(f, "all"),
         }
     }
 }
 
-impl<'a> Display for FormatCtx<'a, ConcurrentStmt<'a>> {
+impl<'a> Display for FormatCtx<'a, ConcurrentStmt> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.pad())?;
         match self.item {
@@ -155,19 +162,23 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt<'a>> {
                 expression,
                 after,
             } => {
-                if let Some(lbl_span) = label {
-                    write!(f, "{}: ", self.get_text(*lbl_span))?;
+                if let Some(lbl_sym) = label {
+                    write!(f, "{}: ", self.get_symbol(*lbl_sym))?;
                 }
-                writeln!(
+                write!(
                     f,
-                    "{} <= {};",
+                    "{} <= {}",
                     self.child(self.get_expr(*target)),
                     self.child(self.get_expr(*expression))
-                )
+                )?;
+                if let Some(x) = after {
+                    write!(f, " after {}", self.child(self.get_expr(*x)))?;
+                }
+                writeln!(f, ";")
             }
-            ConcurrentStmt::ConditionalAssignment { target } => {
-                writeln!(f, "{} <= ...;", target)
-            }
+            // ConcurrentStmt::ConditionalAssignment { target } => {
+            //     writeln!(f, "{} <= ...;", target)
+            // }
             ConcurrentStmt::ComponentInstantiation {
                 label,
                 component_name,
@@ -176,13 +187,13 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt<'a>> {
                 port_map,
             } => {
                 if let Some(lbl) = label {
-                    write!(f, "{}: ", self.get_text(*lbl))?;
+                    write!(f, "{}: ", self.get_symbol(*lbl))?;
                 }
 
-                write!(f, "{}", self.get_text(*component_name))?;
+                write!(f, "{}", self.child(self.get_expr(*component_name)))?;
 
                 if let Some(arch) = arch_qualifier {
-                    write!(f, "({})", self.get_text(*arch))?;
+                    write!(f, "({})", self.get_symbol(*arch))?;
                 }
 
                 if !generic_map.is_empty() {
@@ -190,7 +201,6 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt<'a>> {
                     self.fmt_association_list(f, generic_map.clone())?;
                 }
 
-                dbg!(port_map);
                 self.fmt_association_list(f, port_map.clone())?;
 
                 writeln!(f, ";")
@@ -198,15 +208,17 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt<'a>> {
             ConcurrentStmt::Process {
                 label,
                 stmts,
-                process_vars,
+                sens_list,
             } => {
                 if let Some(x) = label {
-                    write!(f, "{} : ", x)?;
+                    write!(f, "{} : ", self.get_symbol(*x))?;
                 }
                 write!(f, "process ")?;
 
-                if let Some(x) = process_vars {
-                    write!(f, "{}", x)?;
+                if let Some(x) = sens_list {
+                    for expr in self.arena.expressions(x.clone()) {
+                        write!(f, "{}", self.child(expr))?;
+                    }
                 }
                 writeln!(f)?;
                 writeln!(f, "{}begin", self.pad())?;
@@ -222,11 +234,15 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt<'a>> {
     }
 }
 
-impl<'a> Display for FormatCtx<'a, SequentialStmt<'a>> {
+impl<'a> Display for FormatCtx<'a, SequentialStmt> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.pad())?;
         match self.item {
-            SequentialStmt::SequentialAssignment { target, expression, after } => writeln!(
+            SequentialStmt::SequentialAssignment {
+                target,
+                expression,
+                after,
+            } => writeln!(
                 f,
                 "{} <= {};",
                 self.child(self.get_expr(*target)),
@@ -271,31 +287,31 @@ impl<'a> Display for FormatCtx<'a, SequentialStmt<'a>> {
                 }
                 writeln!(f, "{}end if;", self.pad())
             }
-            SequentialStmt::Case {
-                expression_span,
-                cases_span,
-            } => writeln!(
-                f,
-                "case {} is {}; end case;",
-                self.get_text(*expression_span),
-                self.get_text(*cases_span)
-            ),
-            SequentialStmt::Loop {
-                label,
-                loop_scheme_span,
-                stmts,
-            } => {
-                if let Some(lbl) = label {
-                    write!(f, "{}: ", lbl)?;
-                }
-                writeln!(f, "{} loop", self.get_text(*loop_scheme_span))?;
-                let seq_ids = &self.arena.seq_stmt_lists[stmts.start as usize..stmts.end as usize];
-                for id in seq_ids {
-                    let stmt = &self.arena.sequential_stmts[id.0 as usize];
-                    write!(f, "{}", self.child_indented(stmt))?;
-                }
-                writeln!(f, "{}end loop;", self.pad())
-            }
+            // SequentialStmt::Case {
+            //     expression_span,
+            //     cases_span,
+            // } => writeln!(
+            //     f,
+            //     "case {} is {}; end case;",
+            //     self.get_text(*expression_span),
+            //     self.get_text(*cases_span)
+            // ),
+            // SequentialStmt::Loop {
+            //     label,
+            //     loop_scheme_span,
+            //     stmts,
+            // } => {
+            //     if let Some(lbl) = label {
+            //         write!(f, "{}: ", self.get_text(*lbl))?;
+            //     }
+            //     writeln!(f, "{} loop", self.get_text(*loop_scheme_span))?;
+            //     let seq_ids = &self.arena.seq_stmt_lists[stmts.start as usize..stmts.end as usize];
+            //     for id in seq_ids {
+            //         let stmt = &self.arena.sequential_stmts[id.0 as usize];
+            //         write!(f, "{}", self.child_indented(stmt))?;
+            //     }
+            //     writeln!(f, "{}end loop;", self.pad())
+            // }
             SequentialStmt::ProcedureCall { call } => {
                 writeln!(f, "{};", self.child(self.get_expr(*call)))
             }
@@ -316,7 +332,7 @@ impl<'a> Display for FormatCtx<'a, ElsifBranch> {
         Ok(())
     }
 }
-impl<'a> Display for FormatCtx<'a, Decl<'a>> {
+impl<'a> Display for FormatCtx<'a, Decl> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.pad())?;
         match self.item {
@@ -325,7 +341,12 @@ impl<'a> Display for FormatCtx<'a, Decl<'a>> {
                 decl_type,
                 default_val,
             } => {
-                write!(f, "signal {} : {}", name, decl_type)?;
+                write!(
+                    f,
+                    "signal {} : {}",
+                    self.get_symbol(*name),
+                    self.get_symbol(*decl_type)
+                )?;
                 if let Some(x) = default_val {
                     write!(f, " := {}", self.child(self.get_expr(*x)))?;
                 }
@@ -336,7 +357,12 @@ impl<'a> Display for FormatCtx<'a, Decl<'a>> {
                 decl_type,
                 default_val,
             } => {
-                write!(f, "constant {} : {}", name, decl_type)?;
+                write!(
+                    f,
+                    "constant {} : {}",
+                    self.get_symbol(*name),
+                    self.get_symbol(*decl_type)
+                )?;
                 if let Some(x) = default_val {
                     write!(f, " := {}", self.child(self.get_expr(*x)))?;
                 }
@@ -347,7 +373,12 @@ impl<'a> Display for FormatCtx<'a, Decl<'a>> {
                 decl_type,
                 default_val,
             } => {
-                write!(f, "variable {} : {}", name, decl_type)?;
+                write!(
+                    f,
+                    "variable {} : {}",
+                    self.get_symbol(*name),
+                    self.get_symbol(*decl_type)
+                )?;
                 if let Some(x) = default_val {
                     write!(f, " := {}", self.child(self.get_expr(*x)))?;
                 }
@@ -358,42 +389,43 @@ impl<'a> Display for FormatCtx<'a, Decl<'a>> {
                 ports_start,
                 ports_end,
             } => {
-                writeln!(f, "component {name}")?;
+                writeln!(f, "component {}", self.get_symbol(*name))?;
                 self.write_ports(f, *ports_start, *ports_end)?;
                 writeln!(f, "{}end component;", self.pad())
             }
         }
     }
 }
-impl<'a> Display for FormatCtx<'a, ContextItem<'a>> {
+impl<'a> Display for FormatCtx<'a, ContextItem> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.item {
-            ContextItem::Library { name } => writeln!(f, "library {};", name),
-            ContextItem::Use { path } => writeln!(f, "use {};", path),
+            ContextItem::Library { name, span: _ } => writeln!(f, "library {};", self.get_symbol(*name)),
+            ContextItem::Use { path, span: _} => writeln!(f, "use {};", self.child(self.get_expr(*path))),
         }
     }
 }
-impl<'a> Display for FormatCtx<'a, Port<'a>> {
+impl<'a> Display for FormatCtx<'a, Port> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let p = self.item;
         write!(
             f,
             "{}{}: {:?} {}",
             self.pad(),
-            p.name,
+            self.get_symbol(p.name),
             p.mode,
             self.child(self.get_expr(p.port_type))
         )
     }
 }
-impl<'a> Display for FormatCtx<'a, Entity<'a>> {
+impl<'a> Display for FormatCtx<'a, Entity> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let entity = self.item;
-        writeln!(f, "entity {} is", self.item.name)?;
+        let name = self.get_symbol(entity.name);
+        writeln!(f, "entity {} is", name)?;
 
         self.write_ports(f, entity.ports_start, entity.ports_end)?;
 
-        writeln!(f, "end {};", entity.name)?;
+        writeln!(f, "end {};", name)?;
         Ok(())
     }
 }
@@ -429,7 +461,6 @@ impl<'a, T> FormatCtx<'a, T> {
         for (i, assoc) in self.arena.associations[start..end].iter().enumerate() {
             if i > 0 {
                 write!(f, ",\n")?;
-                dbg!(assoc);
             }
             // Named mapping: formal => actual
             write!(f, "{}", self.pad())?;

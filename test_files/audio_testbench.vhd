@@ -160,11 +160,11 @@ architecture Behavioral of audio_testbench is
     -- Buttons and switches
     signal btn_deb : std_logic_vector(4 downto 0);
     signal sw_deb : std_logic_vector(7 downto 0);
-    alias reset_btn_deb : std_logic is btn_deb(0);
-    alias up_btn_deb : std_logic is btn_deb(1);
-    alias down_btn_deb : std_logic is btn_deb(2);
-    alias left_btn_deb : std_logic is btn_deb(3);
-    alias right_btn_deb : std_logic is btn_deb(4);
+    -- alias reset_btn_deb : std_logic is btn_deb(0);
+    -- alias up_btn_deb : std_logic is btn_deb(1);
+    -- alias down_btn_deb : std_logic is btn_deb(2);
+    -- alias left_btn_deb : std_logic is btn_deb(3);
+    -- alias right_btn_deb : std_logic is btn_deb(4);
 
     -- Internal register to hold the stable state
     signal clean_reset : std_logic := '0';

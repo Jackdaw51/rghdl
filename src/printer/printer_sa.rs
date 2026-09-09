@@ -8,10 +8,9 @@ impl<'a> Display for SAFormatCtx<'a, SemanticError> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}, around {}, on line {}",
+            "{}, in file {}",
             self.child(&self.item.kind),
-            self.get_text(self.item.span),
-            self.get_line_from_span(self.item.span)
+            self.path,
         )
     }
 }
@@ -22,8 +21,8 @@ impl<'a> Display for SAFormatCtx<'a, SemanticErrorKind> {
                 write!(
                     f,
                     "expected: {}, found: {}",
-                    self.child(self.sa.types.get(*expected).unwrap()),
-                    self.child(self.sa.types.get(*found).unwrap())
+                    self.child(self.sa.types.get(*expected).expect("Types not registered properly")),
+                    self.child(self.sa.types.get(*found).expect("Types not registered properly")),
                 )
             }
             a => write!(f, "{:?}", a),

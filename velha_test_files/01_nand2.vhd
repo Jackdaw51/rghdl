@@ -10,8 +10,8 @@ entity nand2 is
         tpd : time := 1 ns
     );
     port (
-        a, b : in  std_logic;
-        y    : out std_logic
+        a, b : in std_logic;
+        y : out std_logic
     );
 end entity nand2;
 

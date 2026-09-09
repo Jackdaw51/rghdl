@@ -1,38 +1,36 @@
 v 4
-file . "velha_test_files/02_primitives_flat.vhd" "46b708c6ccc0c4b1f9bdf813a5486e1097ac02ac" "20260825185735.988":
-  entity inv_flat at 1( 0) + 0 on 260;
-  architecture rtl of inv_flat at 10( 127) + 0 on 261;
-  entity and2_flat at 15( 189) + 0 on 262;
-  architecture rtl of and2_flat at 25( 337) + 0 on 263;
-  entity or2_flat at 30( 401) + 0 on 264;
-  architecture rtl of or2_flat at 40( 547) + 0 on 265;
-  entity xor2_flat at 45( 609) + 0 on 266;
-  architecture rtl of xor2_flat at 55( 757) + 0 on 267;
-file . "velha_test_files/02_primitives.vhd" "e75c74720b4a66ffa3843b2aca8da680967576ca" "20260825185735.987":
-  entity inv at 5( 306) + 0 on 251;
-  architecture rtl of inv at 12( 486) + 0 on 252;
-  entity and2 at 18( 616) + 0 on 253;
-  architecture rtl of and2 at 25( 788) + 0 on 254;
-  entity or2 at 31( 934) + 0 on 255;
-  architecture rtl of or2 at 38( 1060) + 0 on 256;
-  entity xor2 at 44( 1208) + 0 on 257;
-  architecture rtl of xor2 at 52( 1413) + 0 on 258;
-  architecture gate_level of xor2 at 57( 1488) + 0 on 259;
-file . "test_files/and_gate_flattened.vhd" "7b85d634edaf2749bb8a90bf81f6a479219596dd" "20260815225812.582":
-  entity and_gate_flattened at 1( 0) + 0 on 21;
-  architecture dataflow of and_gate_flattened at 9( 117) + 0 on 22;
-file . "test_files/and_gate.vhd" "7f5c92a401c578b6d47e1c81f2c2eaedaf803d8a" "20260820140910.026":
-  entity and_gate at 1( 0) + 0 on 71;
-  architecture dataflow of and_gate at 12( 181) + 0 on 72;
-file . "test_files/and_gate_flat.vhd" "1bfba0ec481da9c5e65a476e3cc66c565a0ca8fa" "20260820140910.026":
-  entity and_gate_flat at 1( 0) + 0 on 73;
-  architecture dataflow of and_gate_flat at 11( 156) + 0 on 74;
-file . "velha_test_files/01_nand2.vhd" "281a93fa8f469853e91f965e2153307775fa646e" "20260825190239.012":
-  entity nand2 at 5( 228) + 0 on 276;
-  architecture rtl of nand2 at 18( 432) + 0 on 277;
-file . "velha_test_files/01_nand2_flat.vhd" "e1824507c776a897f2284646bbee921541063a54" "20260825190239.012":
-  entity nand2_flat at 1( 0) + 0 on 278;
-  architecture rtl of nand2_flat at 14( 192) + 0 on 279;
-file . "velha_test_files/tb_equiv.vhd" "bf78939d9f3492e12afd617f072d3302a6575727" "20260825190239.013":
-  entity tb_nand2_equiv at 1( 0) + 0 on 280;
-  architecture behavioral of tb_nand2_equiv at 8( 123) + 0 on 281;
+file . "velha_test_files/01_nand2_flat.vhd" "272a822a88caaae0babd47103676b9a68c4814a8" "20260826143520.133":
+  entity nand2_flat at 1( 0) + 0 on 250;
+  architecture rtl of nand2_flat at 14( 192) + 0 on 251;
+file . "velha_test_files/01_nand2.vhd" "281a93fa8f469853e91f965e2153307775fa646e" "20260826143520.133":
+  entity nand2 at 5( 228) + 0 on 248;
+  architecture rtl of nand2 at 18( 432) + 0 on 249;
+file . "velha_test_files/tb_equiv.vhd" "210ccb01491d7edb492eaba137562432d118e8c5" "20260826143520.135":
+  entity tb_nand2_equiv at 1( 0) + 0 on 252;
+  architecture behavioral of tb_nand2_equiv at 8( 123) + 0 on 253;
+file . "velha_test_files/03_adders_flat.vhd" "429e86969f67d92b662268f153b749214163fbcf" "20260826143310.030":
+  entity full_adder_flat at 44( 665) + 0 on 214;
+  architecture struct of full_adder_flat at 56( 871) + 0 on 215;
+file . "velha_test_files/03_adders.vhd" "5ea0377f8c59e02e712c6c6a0873e110feff0ee6" "20260826143310.029":
+  entity full_adder at 42( 905) + 0 on 207;
+  architecture struct of full_adder at 53( 1104) + 0 on 208;
+file . "velha_test_files/02_primitives.vhd" "e75c74720b4a66ffa3843b2aca8da680967576ca" "20260826143511.857":
+  entity inv at 5( 306) + 0 on 222;
+  architecture rtl of inv at 12( 486) + 0 on 223;
+  entity and2 at 18( 616) + 0 on 224;
+  architecture rtl of and2 at 25( 788) + 0 on 225;
+  entity or2 at 31( 934) + 0 on 226;
+  architecture rtl of or2 at 38( 1060) + 0 on 227;
+  entity xor2 at 44( 1208) + 0 on 228;
+  architecture rtl of xor2 at 52( 1413) + 0 on 229;
+  architecture gate_level of xor2 at 57( 1488) + 0 on 230;
+file . "velha_test_files/02_primitives_flat.vhd" "a2a7c1adb0e0f06ea49df42774549febbc23ef4a" "20260826143511.860":
+  entity inv_flat at 1( 0) + 0 on 231;
+  architecture rtl of inv_flat at 10( 127) + 0 on 232;
+  entity and2_flat at 15( 189) + 0 on 233;
+  architecture rtl of and2_flat at 25( 337) + 0 on 234;
+  entity or2_flat at 30( 401) + 0 on 235;
+  architecture rtl of or2_flat at 40( 547) + 0 on 236;
+  entity xor2_flat at 45( 609) + 0 on 237;
+  architecture rtl of xor2_flat at 55( 757) + 0 on 238;
+  architecture gate_level of xor2_flat at 60( 821) + 0 on 239;

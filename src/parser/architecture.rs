@@ -1,11 +1,13 @@
 use std::ops::Range;
 
 use super::Parser;
-use crate::ast::{Association, ConcurrentStmt, ElsifBranch, Expr, SequentialStmt};
+use crate::analyzer::SymbolId;
+use crate::ast::{Association, ConcurrentStmt, ElsifBranch, Expr, ExprId, SequentialStmt};
 use crate::exp_tks;
 use crate::parser::{ParseResult, Token, TokenKind};
 
 use crate::ast::{Architecture, ArchitectureId, Decl, DeclId};
+use crate::printer::FormatCtx;
 use crate::{parser::ParseErrorKind, parser::Span};
 
 impl<'a> Parser<'a> {
@@ -25,13 +27,17 @@ impl<'a> Parser<'a> {
                 break;
             }
 
+            let start = self.lexer.current_pos;
             // Parse the statement, fetch id and push it to the main array
             match self.parse_sequential_statement() {
                 Ok(stmt) => {
-                    let id = self.arena.alloc_seq_stmt(stmt);
+                    let end = self.lexer.current_pos;
+                    // println!("Sequential statement: \n{}",self.get_text(Span::new(start, end)));
+                    let id = self.arena.alloc_seq_stmt(stmt, Span::new(start, end));
                     local_ids.push(id);
                 }
                 Err(e) => {
+                    
                     self.errors.push(e);
                     self.recover_to_statement_boundary();
                 }
@@ -49,12 +55,12 @@ impl<'a> Parser<'a> {
         self.advance();
 
         let arch_name_tok = self.expect(TokenKind::Identifier)?;
-        let arch_name = self.get_text(arch_name_tok.span);
+        let arch_name = self.intern(arch_name_tok.span);
 
         self.expect(TokenKind::KwOf)?;
 
         let entity_name_tok = self.expect(TokenKind::Identifier)?;
-        let entity_name = entity_name_tok.span;
+        let entity_name = self.intern(entity_name_tok.span);
 
         self.expect(TokenKind::KwIs)?;
 
@@ -74,9 +80,11 @@ impl<'a> Parser<'a> {
         let mut local_conc_ids = Vec::new();
 
         while !self.next_is(TokenKind::KwEnd) {
+            let start = self.lexer.current_pos;
             match self.parse_concurrent_statement() {
                 Ok(stmt) => {
-                    let id = self.arena.alloc_conc_stmt(stmt);
+                    let end = self.lexer.current_pos;
+                    let id = self.arena.alloc_conc_stmt(stmt, Span::new(start, end));
                     local_conc_ids.push(id);
                 }
                 Err(x) => {
@@ -99,13 +107,13 @@ impl<'a> Parser<'a> {
 
         if self.next_is(TokenKind::Identifier) {
             let t = self.advance();
-            let end_name = self.get_text(t.span);
+            let end_name = self.intern(t.span);
 
             if end_name != arch_name {
                 return self.err(
                     ParseErrorKind::NameMismatch {
-                        expected_span: arch_name_tok.span,
-                        found_span: t.span,
+                        expected_symbol: arch_name,
+                        found_symbol: end_name,
                     },
                     t.span,
                 );
@@ -114,6 +122,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::Semicolon)?;
         let arch = Architecture {
             name: arch_name,
+            span: arch_name_tok.span,
             entity_name,
             decls_start: DeclId(decls_start),
             decls_end: DeclId(decls_end),
@@ -141,17 +150,17 @@ impl<'a> Parser<'a> {
         }?;
         Ok(())
     }
-    fn parse_concurrent_statement(&mut self) -> ParseResult<ConcurrentStmt<'a>> {
+    fn parse_concurrent_statement(&mut self) -> ParseResult<ConcurrentStmt> {
         if self.lexer.peek().kind == TokenKind::KwProcess {
             self.advance();
             return self.parse_process(None);
         }
 
-        let mut label: Option<Span> = None;
+        let mut label = None;
         if self.next_is(TokenKind::Identifier) && self.lexer.peek_next().kind == TokenKind::Colon {
             let label_tok = self.advance();
-            let a = self.advance();
-            label = Some(label_tok.span);
+            self.advance(); //colon
+            label = Some(self.intern(label_tok.span));
             // label : process
             if self.next_is(TokenKind::KwProcess) {
                 self.advance();
@@ -162,8 +171,6 @@ impl<'a> Parser<'a> {
             if self.next_is(TokenKind::KwEntity) {
                 return self.parse_direct_entity_instantiation(label);
             }
-
-            // TODO Component instantiations like `u0: gate_type port map(...)``
         }
 
         let target_expr = self.parse_target_expression()?;
@@ -192,11 +199,7 @@ impl<'a> Parser<'a> {
             // Component Instantiation (`u1: my_component generic map(...) port map(...);`)
             // The Pratt parser parsed `my_component` as `target_expr` (Expr::Identifier).
             TokenKind::KwPort | TokenKind::KwGeneric => {
-                let comp_name = match self.arena.exprs.get(target_expr.0 as usize) {
-                    Some(Expr::Identifier { span, .. }) => *span,
-                    _ => todo!(),
-                };
-                self.parse_component_instantiation_body(comp_name, next_tok, label)
+                self.parse_component_instantiation_body(target_expr, next_tok, label)
             }
 
             x => exp_tks!(
@@ -210,7 +213,12 @@ impl<'a> Parser<'a> {
     }
     fn parse_component_declaration(&mut self) -> ParseResult<()> {
         let name_tok = self.expect(TokenKind::Identifier)?;
-        let name = self.get_text(name_tok.span);
+        let name = self.intern(name_tok.span);
+
+        if self.next_is(TokenKind::KwIs) {
+            self.advance();
+        }
+
         let (ports_start, ports_end) = self.parse_port_clause()?;
 
         let decl = Decl::Component {
@@ -218,14 +226,30 @@ impl<'a> Parser<'a> {
             ports_start,
             ports_end,
         };
+
         self.expect(TokenKind::KwEnd)?;
 
-        //TODO only handles end component; for now
+        if self.next_is(TokenKind::KwComponent) {
+            self.advance();
+        }
+        if self.next_is(TokenKind::Identifier) {
+            let t = self.advance();
+            let end_name = self.intern(t.span);
 
-        self.expect(TokenKind::KwComponent)?;
+            if end_name != name {
+                return self.err(
+                    ParseErrorKind::NameMismatch {
+                        expected_symbol: name,
+                        found_symbol: end_name,
+                    },
+                    t.span,
+                );
+            };
+        }
+
         self.expect(TokenKind::Semicolon)?;
 
-        self.arena.alloc_decl(decl);
+        self.arena.alloc_decl(decl, name_tok.span);
         Ok(())
     }
     /// Only handles `signal identifier_1,identifier_n : subtype;`
@@ -233,18 +257,18 @@ impl<'a> Parser<'a> {
     fn parse_scv_declaration(&mut self, token_kind: TokenKind) -> ParseResult<()> {
         let mut names = vec![];
         let name_tok = self.expect(TokenKind::Identifier)?;
-        names.push(self.get_text(name_tok.span));
+        names.push(name_tok.span);
         // handle comma-separated signals
         while self.next_is(TokenKind::Comma) {
             self.advance();
             let name_tok = self.expect(TokenKind::Identifier)?;
-            names.push(self.get_text(name_tok.span));
+            names.push(name_tok.span);
         }
         self.expect(TokenKind::Colon)?;
 
-        let type_span =
+        let decl_type_span =
             self.slice_until_depth_zero(&[TokenKind::Semicolon, TokenKind::OpAssign])?;
-        let decl_type = self.get_text(type_span).trim();
+        let decl_type = self.intern(decl_type_span);
 
         let mut default_val = None;
         if self.next_is(TokenKind::OpAssign) {
@@ -254,7 +278,8 @@ impl<'a> Parser<'a> {
 
         self.expect(TokenKind::Semicolon)?;
 
-        for name in names {
+        for name_span in names {
+            let name = self.intern(name_span);
             let decl = match token_kind {
                 TokenKind::KwSignal => Decl::Signal {
                     name,
@@ -273,21 +298,35 @@ impl<'a> Parser<'a> {
                 },
                 _ => unreachable!("Token was already validated"),
             };
-            self.arena.alloc_decl(decl);
+            self.arena.alloc_decl(decl, name_span);
         }
 
         Ok(())
     }
-    fn parse_process(&mut self, label: Option<Span>) -> ParseResult<ConcurrentStmt<'a>> {
-        let mut process_vars = None;
+    fn parse_process(&mut self, label: Option<SymbolId>) -> ParseResult<ConcurrentStmt> {
+        let mut sens_list: Option<Range<u32>> = None;
 
         if self.next_is(TokenKind::LParen) {
-            let start = self.advance().span.start;
+            self.advance();
+            let mut local_sens = Vec::new();
+
             while !self.next_is(TokenKind::RParen) && self.not_eof() {
-                self.advance();
+                let expr_id = self.parse_target_expression()?;
+                local_sens.push(expr_id);
+
+                if self.next_is(TokenKind::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
             }
-            let end = self.expect(TokenKind::RParen)?.span.end;
-            process_vars = Some(self.get_text(Span { start, end }));
+            self.expect(TokenKind::RParen)?;
+
+            let start = self.arena.expr_lists.len() as u32;
+            self.arena.expr_lists.extend(local_sens);
+            let end = self.arena.expr_lists.len() as u32;
+
+            sens_list = Some(start..end);
         }
         //Optional is
         if self.next_is(TokenKind::KwIs) {
@@ -302,13 +341,10 @@ impl<'a> Parser<'a> {
 
         let stmts = self.parse_sequential_block()?;
 
-        let a = self.expect(TokenKind::KwEnd)?;
-
-        dbg!(a);
+        self.expect(TokenKind::KwEnd)?; //end
 
         // Handle optional "end process;" or "end process label;"
         if self.next_is(TokenKind::KwProcess) {
-            dbg!("A");
             self.advance();
         }
 
@@ -317,30 +353,29 @@ impl<'a> Parser<'a> {
         if let Some(lbl) = label {
             if self.next_is(TokenKind::Identifier) {
                 let t = self.advance();
-                if self.get_text(t.span) != self.get_text(lbl) {
+                let found = self.intern(t.span);
+                if found != lbl {
                     return self.err(
                         ParseErrorKind::NameMismatch {
-                            expected_span: lbl,
-                            found_span: t.span,
+                            expected_symbol: lbl,
+                            found_symbol: found,
                         },
                         t.span,
                     );
                 }
             }
-            l = Some(self.get_text(lbl));
+            l = Some(lbl);
         }
-
-        dbg!("last");
 
         self.expect(TokenKind::Semicolon)?;
 
         Ok(ConcurrentStmt::Process {
             label: l,
             stmts,
-            process_vars,
+            sens_list,
         })
     }
-    fn parse_sequential_statement(&mut self) -> ParseResult<SequentialStmt<'a>> {
+    fn parse_sequential_statement(&mut self) -> ParseResult<SequentialStmt> {
         match self.lexer.peek().kind {
             TokenKind::KwIf => self.parse_if_statement(),
 
@@ -353,11 +388,15 @@ impl<'a> Parser<'a> {
                 // Parses bare identifiers ('clk'), indexed arrays ('arr(0)'), or procedure calls ('reset(clk)')
                 let target_expr = self.parse_target_expression()?;
 
+                
                 let next_tok = self.advance();
                 match next_tok.kind {
                     // Signal Assignment: target <= expr;
                     TokenKind::OpSignalAssignOrLEq => {
+                        
+                        self.print_expr(target_expr);
                         let expression = self.parse_expression()?;
+                        self.print_expr(expression);
                         let after = if self.next_is(TokenKind::KwAfter) {
                             self.advance(); // consume `after`
                             Some(self.parse_expression()?)
@@ -438,8 +477,7 @@ impl<'a> Parser<'a> {
             }
         }
     }
-    fn parse_if_statement(&mut self) -> ParseResult<SequentialStmt<'a>> {
-        dbg!("hellooo");
+    fn parse_if_statement(&mut self) -> ParseResult<SequentialStmt> {
         self.advance();
 
         let condition = self.parse_expression()?;
@@ -472,7 +510,6 @@ impl<'a> Parser<'a> {
         } else {
             0..0
         };
-        dbg!(else_stmts.clone());
         self.expect(TokenKind::KwEnd)?;
         if self.next_is(TokenKind::KwIf) {
             self.advance();
@@ -491,31 +528,20 @@ impl<'a> Parser<'a> {
     /// A direct entity is the instantiation that directly targets a compiled entity in a design library
     fn parse_direct_entity_instantiation(
         &mut self,
-        label: Option<Span>,
-    ) -> ParseResult<ConcurrentStmt<'a>> {
+        label: Option<SymbolId>,
+    ) -> ParseResult<ConcurrentStmt> {
         self.expect(TokenKind::KwEntity)?;
 
-        // Parses "work.gate" or bare "gate"
-        let start_tok = self.expect(TokenKind::Identifier)?;
-        let mut end_span = start_tok.span;
+        let component_name = self.parse_expression()?;
 
-        if self.next_is(TokenKind::Dot) {
-            self.advance();
-            let name_tok = self.expect(TokenKind::Identifier)?;
-            end_span = name_tok.span;
-        }
-
-        let component_name = Span {
-            start: start_tok.span.start,
-            end: end_span.end,
-        };
+        todo!("Check if the arch qualifier is handled correctly");
 
         // Handles optional architecture qualifier: entity work.gate(rtl)
         let arch_qualifier = if self.next_is(TokenKind::LParen) {
             self.advance();
             let arch_tok = self.expect(TokenKind::Identifier)?;
             self.expect(TokenKind::RParen)?;
-            Some(arch_tok.span)
+            Some(self.intern(arch_tok.span))
         } else {
             None
         };
@@ -565,7 +591,7 @@ impl<'a> Parser<'a> {
                     actual: first_expr,
                 }
             };
-            dbg!(assoc.clone(), self.arena.expr(first_expr));
+            // dbg!(assoc.clone(), self.arena.expr(first_expr));
             self.arena.associations.push(assoc);
 
             if self.next_is(TokenKind::Comma) {
@@ -583,10 +609,10 @@ impl<'a> Parser<'a> {
 
     fn parse_component_instantiation_body(
         &mut self,
-        component_name: Span,
+        component_name: ExprId,
         first_tok: Token,
-        label: Option<Span>,
-    ) -> ParseResult<ConcurrentStmt<'a>> {
+        label: Option<SymbolId>,
+    ) -> ParseResult<ConcurrentStmt> {
         let mut generic_map = 0..0;
 
         if first_tok.kind == TokenKind::KwGeneric {
@@ -616,5 +642,16 @@ impl<'a> Parser<'a> {
             generic_map,
             port_map,
         })
+    }
+
+    pub(crate) fn print_expr(&self, expr_id: ExprId) {
+        let f = FormatCtx {
+            item: self.arena.expr(expr_id),
+            source: self.source,
+            symbols: self.interner,
+            arena: &self.arena,
+            indent: 0,
+        };
+        println!("{f}");
     }
 }

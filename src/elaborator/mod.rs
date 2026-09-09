@@ -11,7 +11,7 @@ mod environment;
 mod evaluated_value;
 
 use crate::analyzer::{SemanticAnalyzer, SymbolId, TypeId};
-use crate::ast::{AstArena, BinaryOp, PortMode, UnaryOp};
+use crate::ast::{AstArena, BinaryOp, PortId, PortMode, UnaryOp};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -32,6 +32,17 @@ pub enum EvaluatedValue {
     Boolean(bool),
     EnumLiteral(SymbolId),
     Vector(Vec<EvaluatedValue>),
+}
+impl EvaluatedValue {
+    fn to_integer(&self) -> Result<i64, ElaboratorError> {
+        match self {
+            EvaluatedValue::Integer(i) => Ok(*i),
+            other => Err(ElaboratorError::EvaluationFailed {
+                reason: format!("Expected integer expression, found {:?}", other),
+                span: Span { start: 0, end: 0 },
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -122,8 +133,8 @@ pub struct InstanceNode {
 
 #[derive(Debug, Clone)]
 pub struct ElaboratedDesign {
-    pub instances:Vec<InstanceId>,
-    pub root_instance: InstanceId
+    pub instances: Vec<InstanceId>,
+    pub root_instance: InstanceId,
 }
 
 #[derive(Default, Debug)]
@@ -150,7 +161,7 @@ impl ElaboratedArena {
 
 /// The structure that manages the Data of the elaboration
 pub struct Elaborator<'a> {
-    pub ast: &'a AstArena<'a>,
+    pub ast: &'a AstArena,
     pub sa: &'a SemanticAnalyzer<'a>,
 
     /// The physical netlist being constructed
@@ -204,6 +215,31 @@ pub struct Environment {
 
     /// Local variables inside processes or loop frames
     pub variables: HashMap<SymbolId, EvaluatedValue>,
+
+    pub components: HashMap<SymbolId, ComponentSignature>,
+}
+impl Environment {
+    fn register_component_signature(
+        &mut self,
+        sym: SymbolId,
+        ports_start: PortId,
+        ports_end: PortId,
+    ) -> Result<(), ElaboratorError> {
+        self.components.insert(
+            sym,
+            ComponentSignature {
+                ports_start,
+                ports_end,
+            },
+        );
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentSignature {
+    pub ports_start: PortId,
+    pub ports_end: PortId,
 }
 
 // impl fmt::Display for ElaboratorError {
@@ -261,7 +297,7 @@ impl Package {
     }
     pub fn add_function(&mut self, name: &str, sym: SymbolId, fn_type_id: TypeId) {
         let name_lower = name.to_lowercase();
-        self.functions.insert(sym,fn_type_id);
+        self.functions.insert(sym, fn_type_id);
         self.name_map.insert(name_lower, sym);
     }
 }

@@ -7,7 +7,7 @@ impl Token {
 }
 
 impl Span {
-    fn new(start: usize, end: usize) -> Self {
+    pub fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
 }
@@ -38,8 +38,8 @@ impl<'a> Lexer<'a> {
             match ch {
                 'a'..='z' | 'A'..='Z' => self.identifier_or_keyword(start_pos),
                 '0'..='9' => self.number(start_pos),
-                ':' | '<' | '='| '/' => self.two_char(start_pos),
-                ';' | '.' | '(' | ')' | ',' | '+' | '-' | '*' | '>' | '&' => {
+                ':' | '<' | '='| '/' | '>'  => self.two_char(start_pos),
+                ';' | '.' | '(' | ')' | ',' | '+' | '-' | '*' | '&' => {
                     self.single_digit(start_pos)
                 }
                 '"' => self.string_lit(start_pos),

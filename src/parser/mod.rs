@@ -1,6 +1,6 @@
-use std::{fmt::Display, iter::Peekable, str::Chars};
+use std::{fmt::Display, iter::Peekable, ops::{Deref, Range}, str::Chars};
 
-use crate::ast::AstArena;
+use crate::{analyzer::{SymbolId, SymbolInterner}, ast::AstArena};
 mod architecture;
 mod entity;
 mod expressions;
@@ -19,6 +19,11 @@ pub struct Token {
 pub struct Span {
     pub start: usize,
     pub end: usize,
+}
+impl Span{
+    pub fn from(range: &Range<u32>) -> Self{
+        Self { start: range.start as usize, end: range.end as usize }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Copy)]
@@ -292,9 +297,10 @@ macro_rules! exp_tks {
 }
 pub struct Parser<'a> {
     pub(crate) lexer: Lexer<'a>,
-    pub arena: AstArena<'a>,
+    pub arena: AstArena,
     pub source: &'a str,
-    pub(crate) errors: Vec<ParseError>,
+    pub errors: Vec<ParseError>,
+    pub interner: &'a mut SymbolInterner,
 }
 #[derive(Debug, Clone)]
 pub enum ParseErrorKind {
@@ -307,8 +313,8 @@ pub enum ParseErrorKind {
         found: TokenKind,
     },
     NameMismatch {
-        expected_span: Span,
-        found_span: Span,
+        expected_symbol: SymbolId,
+        found_symbol: SymbolId,
     },
     UnexpectedEof,
 }

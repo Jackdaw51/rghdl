@@ -5,9 +5,9 @@ entity nand2_flat is
 		tpd : integer := 1000000
 	);
 	port (
-		a: In std_logic;
-		b: In std_logic;
-		y: Out std_logic
+		a: in std_logic;
+		b: in std_logic;
+		y: out std_logic
 	);
 end nand2_flat;
 

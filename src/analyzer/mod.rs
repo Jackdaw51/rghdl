@@ -5,7 +5,8 @@ pub(crate) mod symbols;
 mod type_inference;
 pub(crate) mod types;
 use std::collections::HashMap;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
+use std::ops::Range;
 
 use crate::ast::*;
 use crate::parser::Span;
@@ -19,8 +20,8 @@ pub struct SymbolId(pub u32);
 
 #[derive(Debug)]
 pub enum SemanticErrorKind {
-    UndefinedSymbol(String),
-    DuplicateDeclaration(String),
+    UndefinedSymbol,
+    DuplicateDeclaration,
     AssignmentTypeMismatch {
         expected: TypeId,
         found: TypeId,
@@ -28,7 +29,7 @@ pub enum SemanticErrorKind {
     InvalidAssignmentKind {
         expected_signal: bool,
     },
-    WriteToInputPort(String),
+    WriteToInputPort,
     ConditionNotBoolean {
         found: TypeId,
     },
@@ -41,9 +42,9 @@ pub enum SemanticErrorKind {
         found: TypeId,
         operator: BinaryOp,
     },
-    UnknownType(String),
+    UnknownType,
     CannotSliceNonArray,
-    UnknownRecordField(String),
+    UnknownRecordField,
     InvalidLiteral(String),
     InvalidUnaryOperand,
     InvalidConcatenation,
@@ -52,6 +53,11 @@ pub enum SemanticErrorKind {
     CannotInferAggregateWithoutContext,
     OthersRequiresContextualType,
     AggregateSizeMismatch,
+    PortAssocMustBeIdent,
+    MalformedUseClause(ExprId),
+    NonExistingSymbolInPackage(SymbolId),
+    PositionalPortAssociationOutOfBounds,
+    EntitySpecifiedNotFound,
 }
 
 #[derive(Debug)]
@@ -60,10 +66,15 @@ pub struct SemanticError {
     pub span: Span,
 }
 
+impl SemanticError {
+    pub fn new(kind: SemanticErrorKind, span: Span) -> Self {
+        Self { kind, span }
+    }
+}
+
 pub struct SemanticAnalyzer<'a> {
-    pub ast: &'a AstArena<'a>,
-    pub source: &'a str,
-    pub symbols: SymbolTable,
+    pub ast: &'a AstArena,
+    pub symbols: &'a mut SymbolTable,
     pub types: TypeArena, // holds a vector of types that are referenced by TypeId
 
     pub current_scope: ScopeId,
@@ -107,8 +118,14 @@ pub enum DeclRef {
         id: DeclId,
         type_id: TypeId,
     },
+    Component {
+        id: DeclId,
+    },
     Type(TypeId),
     Function(TypeId),
+    Instance {
+        name: SymbolId,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +152,7 @@ pub struct ScopeArena {
 pub struct SymbolInterner {
     map: HashMap<String, SymbolId>,
     pub vec: Vec<String>,
+    symbol_list: Vec<SymbolId>,
 }
 pub struct SymbolTable {
     pub scopes: ScopeArena,
