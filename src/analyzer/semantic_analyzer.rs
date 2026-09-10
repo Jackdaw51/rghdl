@@ -62,26 +62,22 @@ impl<'a> super::SemanticAnalyzer<'a> {
     }
 
     pub fn analyze_all(&mut self, registry: &LibraryRegistry) {
-        self.analyze_context_items(registry);
-
         for (i, entity) in self.ast.entities.iter().enumerate() {
-            self.analyze_entity(entity, i as u32);
+            self.analyze_entity(entity, i as u32, registry);
         }
 
         for (i, arch) in self.ast.architectures.iter().enumerate() {
-            self.analyze_architecture(arch, i as u32);
+            self.analyze_architecture(arch, i as u32, registry);
         }
     }
 
-    pub fn analyze_context_items(&mut self, registry: &LibraryRegistry) {
-        for item in &self.ast.contexts {
-            match item {
-                ContextItem::Library { name, span } => {
-                    self.analyze_library_clause(*name, registry, *span);
-                }
-                ContextItem::Use { path, span } => {
-                    self.analyze_use_clause(*path, registry, *span);
-                }
+    pub fn analyze_context_items(&mut self, item: &ContextItem, registry: &LibraryRegistry) {
+        match item {
+            ContextItem::Library { name, span } => {
+                self.analyze_library_clause(*name, registry, *span);
+            }
+            ContextItem::Use { path, span } => {
+                self.analyze_use_clause(*path, registry, *span);
             }
         }
     }
@@ -109,7 +105,17 @@ impl<'a> super::SemanticAnalyzer<'a> {
                     parts.push(self.get_text(*field));
                     self.ast.expr(*target)
                 }
-                _ => break,
+                Expr::Identifier { name } => {
+                    parts.push(self.get_text(*name));
+                    break;
+                }
+                _ => {
+                    self.errors.push(SemanticError::new(
+                        SemanticErrorKind::MalformedUseClause(path),
+                        span,
+                    ));
+                    return;
+                }
             }
         }
 
@@ -120,6 +126,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
             });
             return;
         }
+        parts.reverse();
 
         let lib_name = parts[0];
         let pkg_name = parts[1];
@@ -136,7 +143,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
             }
         };
 
-        if selector.eq_ignore_ascii_case("all") {
+        if selector.eq("all") {
             // Bulk inject all package types into current global scope
             for (sym_id, type_id) in &pkg.types {
                 let _ = self
@@ -176,12 +183,18 @@ impl<'a> super::SemanticAnalyzer<'a> {
         }
     }
 
-    fn analyze_entity(&mut self, entity: &Entity, entity_id: u32) {
+    fn analyze_entity(&mut self, entity: &Entity, entity_id: u32, registry: &LibraryRegistry) {
         let entity_sym = entity.name;
         let entity_scope = self
             .symbols
             .scopes
             .alloc(ScopeKind::Entity, Some(self.current_scope));
+
+        let context_items =
+            &self.ast.contexts[entity.contexts.start as usize..entity.contexts.end as usize];
+        for item in context_items {
+            self.analyze_context_items(item, registry);
+        }
 
         if let Err(_s) = self.symbols.define(
             self.current_scope,
@@ -237,7 +250,12 @@ impl<'a> super::SemanticAnalyzer<'a> {
         self.current_scope = prev_scope;
     }
 
-    fn analyze_architecture(&mut self, arch: &Architecture, arch_id: u32) {
+    fn analyze_architecture(
+        &mut self,
+        arch: &Architecture,
+        arch_id: u32,
+        registry: &LibraryRegistry,
+    ) {
         // Link Architecture Scope -> Entity Scope -> Global Scope
         //Should be safe to unwrap
         let entity_sym = arch.entity_name;

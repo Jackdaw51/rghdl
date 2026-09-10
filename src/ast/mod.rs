@@ -136,6 +136,7 @@ pub struct Port {
 pub struct Entity {
     pub name: SymbolId,
     pub span: Span,
+    pub contexts: Range<u32>,
     pub ports_start: PortId,
     pub ports_end: PortId,
     pub generics_start: DeclId,
@@ -263,6 +264,7 @@ pub struct AstArena {
     pub entities: Vec<Entity>,
     pub architectures: Vec<Architecture>,
     pub contexts: Vec<ContextItem>,
+    pub(super) pending_contexts: u32,
 
     pub ports: Vec<Port>,
     port_spans: Vec<Span>,

@@ -31,6 +31,7 @@ impl AstArena {
     pub fn alloc_context(&mut self, item: ContextItem) -> ContextId {
         let id = self.contexts.len() as u32;
         self.contexts.push(item);
+        self.pending_contexts += 1;
         ContextId(id)
     }
     pub fn alloc_decl(&mut self, decl: Decl, span: Span) -> DeclId {

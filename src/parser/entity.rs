@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crate::{
     ast::{Decl, DeclId, Entity, EntityId},
     parser::{ParseErrorKind, ParseResult, Parser, Span, TokenKind},
@@ -37,6 +39,10 @@ impl<'a> Parser<'a> {
 
         self.expect(TokenKind::Semicolon)?;
 
+        let end = self.arena.contexts.len() as u32;
+        let start = end - self.arena.pending_contexts;
+        self.arena.pending_contexts = 0;
+
         let entity = Entity {
             name: entity_name,
             span: name_token.span,
@@ -44,6 +50,7 @@ impl<'a> Parser<'a> {
             ports_end,
             generics_start,
             generics_end,
+            contexts: Range { start, end },
         };
 
         Ok(self.arena.alloc_entity(entity))
