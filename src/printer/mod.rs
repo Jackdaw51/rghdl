@@ -4,7 +4,7 @@ pub mod printer_sa;
 
 use std::collections::HashSet;
 
-use crate::analyzer::{SemanticAnalyzer, SymbolId, SymbolInterner};
+use crate::analyzer::{SemanticAnalyzer, SemanticError, SymbolId, SymbolInterner};
 use crate::ast::{AstArena, Expr, ExprId};
 use crate::elaborator::ElaboratedArena;
 use crate::parser::Span;
@@ -115,6 +115,7 @@ pub struct SAFormatCtx<'a, T> {
     pub sa: &'a SemanticAnalyzer<'a>,
     pub indent: usize,
     pub path: &'a str,
+    pub source: &'a str,
 }
 
 impl<'a, T> SAFormatCtx<'a, T> {
@@ -125,6 +126,7 @@ impl<'a, T> SAFormatCtx<'a, T> {
             indent: self.indent,
             sa: self.sa,
             path: self.path,
+            source: self.source,
         }
     }
     fn child_indented<U>(&self, item: &'a U) -> SAFormatCtx<'a, U> {
@@ -134,6 +136,7 @@ impl<'a, T> SAFormatCtx<'a, T> {
             indent: self.indent + 1,
             sa: self.sa,
             path: self.path,
+            source: self.source,
         }
     }
     fn pad(&self) -> String {
@@ -141,5 +144,22 @@ impl<'a, T> SAFormatCtx<'a, T> {
     }
     fn get_expr(&self, expr_id: ExprId) -> &Expr {
         &self.arena.exprs[expr_id.0 as usize]
+    }
+    fn get_position(&self, error: &SemanticError) -> String {
+        let mut line = 1;
+        let mut s = String::new();
+        let mut local = 0;
+        for (c, i) in self.source.as_bytes().iter().enumerate() {
+            local += 1;
+            if *i as char == '\n' {
+                line += 1;
+                local = 0;
+            }
+            if c == error.span.start {
+                s = format!("{}:{}", line, local);
+                break;
+            }
+        }
+        s
     }
 }

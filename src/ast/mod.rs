@@ -277,7 +277,7 @@ pub struct AstArena {
     conc_span: Vec<Span>,
 
     pub exprs: Vec<Expr>,
-    expr_span: Vec<Span>,
+    pub expr_span: Vec<Span>,
 
     pub associations: Vec<Association>,
 
@@ -319,6 +319,6 @@ impl GetSpan<ConcStmtId> for AstArena{
 impl GetSpan<ExprId> for AstArena{
     #[inline]
     fn span(&self, id: ExprId) -> Span {
-        self.decl_span[id.0 as usize]
+        self.expr_span[id.0 as usize]
     }
 } 

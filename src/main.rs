@@ -37,7 +37,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut paths: Vec<&str> = vec![path_2, path_3];
     paths = vec![path_1];
-    paths = vec![path];
     let strings: Vec<String> = paths
         .iter()
         .map(|f| fs::read_to_string(f).expect("Not found"))
@@ -67,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     workspace.print_ast()?;
-    // workspace.analyze();
+    workspace.analyze();
     return Ok(());
 
     // let mut s_table = SymbolTable::new();

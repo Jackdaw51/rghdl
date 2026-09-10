@@ -45,7 +45,7 @@ pub enum SemanticErrorKind {
     UnknownType,
     CannotSliceNonArray,
     UnknownRecordField,
-    InvalidLiteral(String),
+    InvalidLiteral,
     InvalidUnaryOperand,
     InvalidConcatenation,
     NotARecord,

@@ -66,34 +66,34 @@ impl<'a> Workspace<'a> {
         }
         Ok(())
     }
-    // pub fn analyze(&mut self) {
-    //     let registry = LibraryRegistry::initialize_builtins(&mut self.table.interner);
+    pub fn analyze(&mut self) {
+        let registry = LibraryRegistry::initialize_builtins(&mut self.table.interner);
 
-    //     for (i, arena) in self.files.iter().enumerate() {
+        for (i, arena) in self.files.iter().enumerate() {
+            let s_ref = &mut self.table;
 
-    //         let s_ref = &mut self.table;
+            let mut sa = SemanticAnalyzer::new(arena, s_ref, &registry);
+            sa.analyze_all(&registry);
 
-    //         let mut sa = SemanticAnalyzer::new(arena, s_ref, &registry);
-    //         sa.analyze_all(&registry);
-
-    //         if !sa.errors.is_empty() {
-    //             eprintln!(
-    //                 "Semantic Analysis failed with {} error(s):",
-    //                 sa.errors.len()
-    //             );
-    //             for err in &sa.errors {
-    //                 eprintln!(
-    //                     "  {}",
-    //                     SAFormatCtx {
-    //                         item: err,
-    //                         arena,
-    //                         indent: 0,
-    //                         sa: &sa,
-    //                         path: self.paths[i]
-    //                     }
-    //                 );
-    //             }
-    //         }
-    //     }
-    // }
+            if !sa.errors.is_empty() {
+                eprintln!(
+                    "Semantic Analysis failed with {} error(s):",
+                    sa.errors.len()
+                );
+                for err in &sa.errors {
+                    eprintln!(
+                        "  {}",
+                        SAFormatCtx {
+                            item: err,
+                            arena,
+                            indent: 0,
+                            sa: &sa,
+                            path: self.paths[i],
+                            source: self.strings[i],
+                        }
+                    );
+                }
+            }
+        }
+    }
 }

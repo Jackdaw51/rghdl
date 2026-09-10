@@ -8,9 +8,11 @@ impl<'a> Display for SAFormatCtx<'a, SemanticError> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}, in file {}",
+            "{}, {}:{}",
             self.child(&self.item.kind),
             self.path,
+            self.get_position(self.item)
+            
         )
     }
 }
