@@ -4,49 +4,12 @@
 -- if-generate, guarded block with a bus-kind signal, nested hierarchy.
 library ieee;
 use ieee.std_logic_1164.all;
-entity xor2 is
-    port (
-        a, b : in std_logic;
-        y : out std_logic);
-end entity xor2;
-
-architecture rtl of xor2 is
-begin
-    y <= a xor b;
-end architecture rtl;
-
-architecture gate_level of xor2 is
-    signal n_a, n_b, t1, t2 : std_logic;
-begin
-    n_a <= not a;
-    n_b <= not b;
-    t1 <= a and n_b;
-    t2 <= n_a and b;
-    y <= t1 or t2;
-end architecture gate_level;
-
-library ieee;
-use ieee.std_logic_1164.all;
-
-entity and2 is
-    port (
-        a, b : in std_logic;
-        y : out std_logic);
-end entity; -- keyword, no label
-
-architecture rtl of and2 is
-begin
-    y <= a and b;
-end architecture;
-
-library ieee;
-use ieee.std_logic_1164.all;
 
 entity full_adder is
     port (
-        a, b, cin : in std_logic;
-        sum : out std_logic;
-        cout : out std_logic
+        a, b, cin : in  std_logic;
+        sum       : out std_logic;
+        cout      : out std_logic
     );
 end entity full_adder;
 
@@ -54,45 +17,41 @@ architecture struct of full_adder is
 
     -- Component declaration: the classic indirect binding path.
     component xor2 is
-        port (
-            a, b : in std_logic;
-            y : out std_logic);
+        port (a, b : in std_logic; y : out std_logic);
     end component xor2;
 
     component and2
-        port (
-            a, b : in std_logic;
-            y : out std_logic);
-    end component; -- no 'is', no closing label
+        port (a, b : in std_logic; y : out std_logic);
+    end component;                      -- no 'is', no closing label
 
     signal s1, c1, c2 : std_logic;
 
 begin
 
     -- Component instantiation, positional association.
-    u_x1 : xor2 port map(a, b, s1);
+    u_x1 : xor2 port map (a, b, s1);
 
     -- Direct entity instantiation with an explicit architecture, named assoc.
     u_x2 : entity work.xor2(rtl)
-        port map(
+        port map (
             a => s1,
             b => cin,
             y => sum
         );
 
     -- Component instantiation, named association, out of declaration order.
-    u_a1 : and2 port map(y => c1, a => a, b => b);
+    u_a1 : and2 port map (y => c1, a => a, b => b);
 
     -- Direct entity instantiation without naming the architecture.
     u_a2 : entity work.and2
-        port map(a => s1, b => cin, y => c2);
+        port map (a => s1, b => cin, y => c2);
 
-    u_o1 : entity work.xor2
-        port map(a => c1, b => c2, y => cout);
+    u_o1 : entity work.or2
+        port map (a => c1, b => c2, y => cout);
 
 end architecture struct;
 
---------------------------------------------------------------------------
+-- --------------------------------------------------------------------------
 -- library ieee;
 -- use ieee.std_logic_1164.all;
 
@@ -183,3 +142,7 @@ end architecture struct;
 --     monitor_blk : block (enable = '1')
 --         signal probe : std_logic bus;
 --     begin
+--         probe <= guarded carry;
+--     end block monitor_blk;
+
+-- end architecture struct;

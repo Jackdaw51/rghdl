@@ -2,9 +2,9 @@ use std::ops::Range;
 
 use super::Parser;
 use crate::analyzer::SymbolId;
-use crate::ast::{Association, ConcurrentStmt, ElsifBranch, Expr, ExprId, SequentialStmt};
+use crate::ast::{Association, ConcurrentStmt, ElsifBranch, Expr, ExprId, GetSpan, SequentialStmt};
 use crate::exp_tks;
-use crate::parser::{ParseResult, Token, TokenKind};
+use crate::parser::{ParseError, ParseResult, Token, TokenKind};
 
 use crate::ast::{Architecture, ArchitectureId, Decl, DeclId};
 use crate::printer::FormatCtx;
@@ -37,7 +37,6 @@ impl<'a> Parser<'a> {
                     local_ids.push(id);
                 }
                 Err(e) => {
-                    
                     self.errors.push(e);
                     self.recover_to_statement_boundary();
                 }
@@ -388,12 +387,10 @@ impl<'a> Parser<'a> {
                 // Parses bare identifiers ('clk'), indexed arrays ('arr(0)'), or procedure calls ('reset(clk)')
                 let target_expr = self.parse_target_expression()?;
 
-                
                 let next_tok = self.advance();
                 match next_tok.kind {
                     // Signal Assignment: target <= expr;
                     TokenKind::OpSignalAssignOrLEq => {
-                        
                         self.print_expr(target_expr);
                         let expression = self.parse_expression()?;
                         self.print_expr(expression);
@@ -534,17 +531,39 @@ impl<'a> Parser<'a> {
 
         let component_name = self.parse_expression()?;
 
-        todo!("Check if the arch qualifier is handled correctly");
-
-        // Handles optional architecture qualifier: entity work.gate(rtl)
-        let arch_qualifier = if self.next_is(TokenKind::LParen) {
-            self.advance();
-            let arch_tok = self.expect(TokenKind::Identifier)?;
-            self.expect(TokenKind::RParen)?;
-            Some(self.intern(arch_tok.span))
-        } else {
-            None
+        let arch_qualifier = match self.arena.expr(component_name) {
+            Expr::CallOrIndex { callee, args } => {
+                let q = *self.arena.expr_lists.get(args.start as usize).unwrap();
+                if args.len() != 1 {
+                    self.errors.push(ParseError {
+                        kind: ParseErrorKind::InvalidArchQualifier,
+                        span: self.arena.span(q),
+                    });
+                    None
+                } else {
+                    let a = self.arena.expr(q);
+                    match a {
+                        Expr::Identifier { name } => Some(*name),
+                        _ => {
+                            self.errors.push(ParseError {
+                                kind: ParseErrorKind::InvalidArchQualifier,
+                                span: self.arena.span(q),
+                            });
+                            None
+                        }
+                    }
+                }
+            }
+            _ => None,
         };
+        match arch_qualifier {
+            Some(a) => {
+                dbg!(self.interner.get(a));
+            }
+            None => {
+                self.print_expr(component_name);
+            }
+        }
 
         // Optional generic map
         let generic_map = if self.next_is(TokenKind::KwGeneric) {

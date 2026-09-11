@@ -593,189 +593,168 @@ impl<'a> super::SemanticAnalyzer<'a> {
                 arch_qualifier: _,
                 generic_map: _,
                 port_map,
-            } => todo!(),
-            // } => {
-            //     if let Some(label_sym) = label {
-            //         let label_text = self.get_text(*label_sym);
-            //         let sym = self.symbols.interner.get_or_internalize(&label_text);
+            } => {
+                if let Some(sym) = *label {
+                    if self.symbols.lookup(self.current_scope, sym).is_some() {
+                        self.errors.push(SemanticError {
+                            kind: SemanticErrorKind::DuplicateDeclaration,
+                            span: self.span(stmt_id),
+                        });
+                    } else {
+                        self.symbols.define(
+                            self.current_scope,
+                            sym,
+                            DeclRef::Instance { name: sym },
+                        );
+                    }
+                }
 
-            //         if self.symbols.lookup(self.current_scope, sym).is_some() {
-            //             self.errors.push(SemanticError {
-            //                 kind: SemanticErrorKind::DuplicateDeclaration,
-            //                 span: self.span(stmt_id),
-            //             });
-            //         } else {
-            //             self.symbols.define(
-            //                 self.current_scope,
-            //                 sym,
-            //                 DeclRef::Instance { name: sym },
-            //             );
-            //         }
-            //     }
+                let decl_ref = self.resolve_instantiated_target(*component_name);
 
-            //     let decl_ref = self.resolve_instantiated_target(*component_name);
+                let target_ports = match decl_ref {
+                    Some(DeclRef::Component { id }) => {
+                        if let Decl::Component {
+                            ports_start,
+                            ports_end,
+                            ..
+                        } = &self.ast.decls[id.0 as usize]
+                        {
+                            &self.ast.ports[ports_start.0 as usize..ports_end.0 as usize]
+                        } else {
+                            unreachable!("DeclRef::Component must point to Decl::Component");
+                        }
+                    }
+                    Some(DeclRef::Entity { entity_id, .. }) => {
+                        let entity = &self.ast.entities[entity_id.0 as usize];
+                        &self.ast.ports[entity.ports_start.0 as usize..entity.ports_end.0 as usize]
+                    }
+                    _ => {
+                        self.errors.push(SemanticError {
+                            kind: SemanticErrorKind::UndefinedSymbol,
+                            span: self.span(*component_name),
+                        });
+                        return;
+                    }
+                };
 
-            //     let target_ports = match decl_ref {
-            //         Some(DeclRef::Component { id }) => {
-            //             if let Decl::Component {
-            //                 ports_start,
-            //                 ports_end,
-            //                 ..
-            //             } = &self.ast.decls[id.0 as usize]
-            //             {
-            //                 &self.ast.ports[ports_start.0 as usize..ports_end.0 as usize]
-            //             } else {
-            //                 unreachable!("DeclRef::Component must point to Decl::Component");
-            //             }
-            //         }
-            //         Some(DeclRef::Entity { entity_id, .. }) => {
-            //             let entity = &self.ast.entities[entity_id.0 as usize];
-            //             &self.ast.ports[entity.ports_start.0 as usize..entity.ports_end.0 as usize]
-            //         }
-            //         _ => {
-            //             self.errors.push(SemanticError {
-            //                 kind: SemanticErrorKind::UndefinedSymbol,
-            //                 span: self.span(*component_name),
-            //             });
-            //             return;
-            //         }
-            //     };
+                let port_associations: &[Association] =
+                    &self.ast.associations[port_map.start as usize..port_map.end as usize];
 
-            //     let port_associations: &[Association] =
-            //         &self.ast.associations[port_map.start as usize..port_map.end as usize];
+                for (idx, assoc_expr) in port_associations.iter().enumerate() {
+                    // Named (formal => actual) vs Positional (actual)
+                    let formal_port = match assoc_expr.formal {
+                        Some(formal_id) => {
+                            // Named association: look up formal name in target_ports
+                            if let Expr::Identifier { name } = &self.ast.exprs[formal_id.0 as usize]
+                            {
+                                target_ports.iter().find(|p| p.name == *name)
+                            } else {
+                                None
+                            }
+                        }
+                        None => {
+                            // Positional association: map directly by declaration index
+                            target_ports.get(idx)
+                        }
+                    };
 
-            //     for (idx, assoc_expr) in port_associations.iter().enumerate() {
-            //         // Named (formal => actual) vs Positional (actual)
-            //         let formal_port = match assoc_expr.formal {
-            //             Some(formal_id) => {
-            //                 // Named association: look up formal name in target_ports
-            //                 if let Expr::Identifier {name } = &self.ast.exprs[formal_id.0 as usize]
-            //                 {
-            //                     target_ports.iter().find(|p| p.name == *span)
-            //                 } else {
-            //                     None
-            //                 }
-            //             }
-            //             None => {
-            //                 // Positional association: map directly by declaration index
-            //                 target_ports.get(idx)
-            //             }
-            //         };
+                    let formal_port = match formal_port {
+                        Some(p) => p,
+                        None => {
+                            let err = match assoc_expr.formal {
+                                Some(formal_expr_id) => {
+                                    let formal_expr = &self.ast.expr(formal_expr_id);
 
-            //         let formal_port = match formal_port {
-            //             Some(p) => p,
-            //             None => {
-            //                 let err = match assoc_expr.formal {
-            //                     Some(formal_expr_id) => {
-            //                         let formal_expr = &self.ast.expr(formal_expr_id);
+                                    match formal_expr {
+                                        // Formal was an identifier, but no matching port exists on the target entity
+                                        Expr::Identifier { name } => SemanticError {
+                                            kind: SemanticErrorKind::UndefinedSymbol,
+                                            span: self.span(formal_expr_id),
+                                        },
+                                        // Formal was an invalid expression construct
+                                        _ => SemanticError {
+                                            kind: SemanticErrorKind::PortAssocMustBeIdent,
+                                            span: self.span(formal_expr_id),
+                                        },
+                                    }
+                                }
+                                // Positional port mapping provided more arguments than ports declared in the entity
+                                None => SemanticError {
+                                    kind: SemanticErrorKind::PositionalPortAssociationOutOfBounds,
+                                    span: Span::from(port_map),
+                                },
+                            };
 
-            //                         match formal_expr {
-            //                             // Formal was an identifier, but no matching port exists on the target entity
-            //                             Expr::Identifier { span } => SemanticError {
-            //                                 kind: SemanticErrorKind::UndefinedSymbol,
-            //                                 span: *span,
-            //                             },
-            //                             // Formal was an invalid expression construct
-            //                             _ => SemanticError {
-            //                                 kind: SemanticErrorKind::PortAssocMustBeIdent,
-            //                                 span: formal_expr.span(),
-            //                             },
-            //                         }
-            //                     }
-            //                     // Positional port mapping provided more arguments than ports declared in the entity
-            //                     None => SemanticError {
-            //                         kind: SemanticErrorKind::PositionalPortAssociationOutOfBounds,
-            //                         span: Span::from(port_map),
-            //                     },
-            //                 };
+                            self.errors.push(err);
+                            continue;
+                        }
+                    };
 
-            //                 self.errors.push(err);
-            //                 continue;
-            //             }
-            //         };
+                    let formal_type = match self.infer_expr_type(formal_port.port_type, None) {
+                        Ok(t) => t,
+                        Err(err) => {
+                            self.errors.push(err);
+                            TypeId::ERROR
+                        }
+                    };
+                    let actual_expr_id = assoc_expr.actual;
 
-            //         let formal_type = match self.infer_expr_type(formal_port.port_type, None) {
-            //             Ok(t) => t,
-            //             Err(err) => {
-            //                 self.errors.push(err);
-            //                 TypeId::ERROR
-            //             }
-            //         };
-            //         let actual_expr_id = assoc_expr.actual;
+                    match self.infer_expr_type(actual_expr_id, Some(formal_type)) {
+                        Ok(actual_type) => {
+                            if actual_type != formal_type && actual_type != TypeId::ERROR {
+                                self.errors.push(SemanticError {
+                                    kind: SemanticErrorKind::AssignmentTypeMismatch {
+                                        expected: formal_type,
+                                        found: actual_type,
+                                    },
+                                    span: self.span(actual_expr_id),
+                                });
+                            }
+                        }
+                        Err(err) => self.errors.push(err),
+                    }
 
-            //         match self.infer_expr_type(actual_expr_id, Some(formal_type)) {
-            //             Ok(actual_type) => {
-            //                 if actual_type != formal_type && actual_type != TypeId::ERROR {
-            //                     self.errors.push(SemanticError {
-            //                         kind: SemanticErrorKind::AssignmentTypeMismatch {
-            //                             expected: formal_type,
-            //                             found: actual_type,
-            //                         },
-            //                         span: self.ast.exprs[actual_expr_id.0 as usize].span(),
-            //                     });
-            //                 }
-            //             }
-            //             Err(err) => self.errors.push(err),
-            //         }
-
-            //         // Direction Guard: Output/InOut formal ports cannot drive read-only local input ports
-            //         if matches!(
-            //             formal_port.mode,
-            //             PortMode::Out | PortMode::InOut | PortMode::Buffer
-            //         ) {
-            //             if let Expr::Identifier { span } =
-            //                 &self.ast.exprs[actual_expr_id.0 as usize]
-            //             {
-            //                 if let Some(sym) =
-            //                     self.symbols.interner.get_symbol(self.get_text(*span))
-            //                 {
-            //                     if let Some(DeclRef::Port {
-            //                         mode: PortMode::In, ..
-            //                     }) = self.symbols.lookup(self.current_scope, sym)
-            //                     {
-            //                         self.errors.push(SemanticError {
-            //                             kind: SemanticErrorKind::WriteToInputPort,
-            //                             span: *span,
-            //                         });
-            //                     }
-            //                 }
-            //             }
-            //         }
-            //     }
-            // }
+                    // Direction Guard: Output/InOut formal ports cannot drive read-only local input ports
+                    if matches!(
+                        formal_port.mode,
+                        PortMode::Out | PortMode::InOut | PortMode::Buffer
+                    ) {
+                        if let Expr::Identifier { name } = self.ast.expr(actual_expr_id) {
+                            if let Some(DeclRef::Port {
+                                mode: PortMode::In, ..
+                            }) = self.symbols.lookup(self.current_scope, *name)
+                            {
+                                self.errors.push(SemanticError {
+                                    kind: SemanticErrorKind::WriteToInputPort,
+                                    span: self.span(actual_expr_id),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
             a => todo!("{:?}", a),
         }
     }
     /// Resolves direct entity instantiations (`work.gate`), bare entity names (`gate`),
     /// or explicit component declarations in scope.
     fn resolve_instantiated_target(&self, name: ExprId) -> Option<DeclRef> {
-        let expr = self.ast.expr(name);
-        todo!();
+        let clean_name = self.get_base_stripped(name)?;
 
-        // let clean_name = if let Some(stripped) = raw_name.strip_prefix("work.") {
-        //     stripped
-        // } else if let Some(stripped) = raw_name.strip_prefix("WORK.") {
-        //     stripped
-        // } else {
-        //     raw_name
-        // };
+        if let Some(decl) = self.symbols.lookup(self.current_scope, clean_name) {
+            return Some(decl);
+        }
 
-        // if let Some(sym_id) = self.symbols.interner.get_symbol(clean_name) {
-        //     if let Some(decl) = self.symbols.lookup(self.current_scope, sym_id) {
-        //         return Some(decl);
-        //     }
-        // }
-
-        // // Fallback: Search globally
-        // self.ast
-        //     .entities
-        //     .iter()
-        //     .enumerate()
-        //     .find(|(_, entity)| self.get_text(entity.name).eq_ignore_ascii_case(clean_name))
-        //     .map(|(idx, _)| DeclRef::Entity {
-        //         entity_id: EntityId(idx as u32),
-        //         scope_id: ScopeId(0),
-        //     })
+        // Fallback: Search globally
+        self.ast
+            .entities
+            .iter()
+            .enumerate()
+            .find(|(_, entity)| entity.name == clean_name)
+            .map(|(idx, _)| DeclRef::Entity {
+                entity_id: EntityId(idx as u32),
+                scope_id: ScopeId(0),
+            })
     }
 
     fn check_boolean_condition(&mut self, condition: ExprId) {
@@ -914,5 +893,27 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
     fn get_text(&self, name: SymbolId) -> &str {
         self.symbols.interner.get(name)
+    }
+
+    fn get_base_stripped(&self, expr_id: ExprId) -> Option<SymbolId> {
+        let expr = self.ast.expr(expr_id);
+        match expr {
+            Expr::CallOrIndex { callee, args } => self.get_base_stripped(*callee),
+            Expr::RecordAccess { target, field } => {
+                let a = self.ast.expr(*target);
+                match a {
+                    Expr::Identifier { name } => {
+                        if self.get_text(*name) == "work" {
+                            return Some(*field);
+                        } else {
+                            todo!();
+                        }
+                    }
+                    _ => self.get_base_stripped(*target),
+                }
+            }
+            Expr::Identifier { name } => return Some(*name),
+            _ => None,
+        }
     }
 }

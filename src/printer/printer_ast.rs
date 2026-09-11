@@ -38,6 +38,7 @@ impl<'a> Display for FormatCtx<'a, ParseError> {
             crate::parser::ParseErrorKind::UnexpectedEof => {
                 write!(f, "Unexpected end of file")
             }
+            crate::parser::ParseErrorKind::InvalidArchQualifier => write!(f, "Arch qualifier can only be a single identifier"),
         }?;
         write!(f, " on line {}", self.get_line_from_span(self.item.span))
     }
@@ -109,8 +110,11 @@ impl<'a> Display for FormatCtx<'a, Expr> {
             }
             Expr::CallOrIndex { callee, args } => {
                 write!(f, "{}", self.child(self.get_expr(*callee)))?;
-                write!(f, "(");
-                for id in self.arena.expressions(args.clone()) {
+                write!(f, "(")?;
+                for (i,id) in self.arena.expressions(args.clone()).enumerate() {
+                    if i != 0 {
+                        write!(f,", ")?;
+                    }
                     write!(f, "{}", self.child(id))?;
                 }
                 write!(f, ")")
@@ -192,9 +196,9 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt> {
 
                 write!(f, "{}", self.child(self.get_expr(*component_name)))?;
 
-                if let Some(arch) = arch_qualifier {
-                    write!(f, "({})", self.get_symbol(*arch))?;
-                }
+                // if let Some(arch) = arch_qualifier {
+                //     write!(f, "({})", self.get_symbol(*arch))?;
+                // }
 
                 if !generic_map.is_empty() {
                     write!(f, " generic map ")?;

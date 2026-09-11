@@ -317,4 +317,5 @@ pub enum ParseErrorKind {
         found_symbol: SymbolId,
     },
     UnexpectedEof,
+    InvalidArchQualifier,
 }

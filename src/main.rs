@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let source_string = fs::read_to_string("test_files/sine_wave_440hz.vhd").expect("Not found");
 
     let mut paths: Vec<&str> = vec![path_2, path_3];
-    paths = vec![path_1];
+    paths = vec![path_3];
     let strings: Vec<String> = paths
         .iter()
         .map(|f| fs::read_to_string(f).expect("Not found"))
