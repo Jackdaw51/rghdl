@@ -8,14 +8,25 @@ use crate::analyzer::{
 use crate::ast::*;
 use crate::elaborator::LibraryRegistry;
 use crate::parser::Span;
+use crate::workspace::FileId;
 
 impl<'a> super::SemanticAnalyzer<'a> {
     pub fn new(
-        ast: &'a AstArena,
+        asts: &'a [AstArena],
         symbols: &'a mut SymbolTable,
         registry: &LibraryRegistry,
     ) -> Self {
+        let ast = &asts[0];
+
         let root_scope = symbols.scopes.alloc(ScopeKind::Global, None);
+        // ONLY implicitly import `std.standard` into the root scope.
+        // This mimics VHDL's implicit prependation `use std.standard.all;`
+        let std_pkg = registry.get_package("std", "standard").unwrap();
+        for (name_sym, type_id) in &std_pkg.types {
+            symbols
+                .define(root_scope, *name_sym, DeclRef::Type(*type_id))
+                .unwrap();
+        }
 
         // We need direct references to these core types for the Semantic Analyzer to do fast type-checking (e.g., checking if an 'if' condition is a boolean)
         // Ideally we would fetch these from the registry's std.standard and ieee.std_logic_1164 packages.
@@ -31,21 +42,14 @@ impl<'a> super::SemanticAnalyzer<'a> {
             .get_type("ieee", "std_logic_1164", "std_logic_vector")
             .unwrap();
 
-        // ONLY implicitly import `std.standard` into the root scope.
-        // This mimics VHDL's implicit prependation `use std.standard.all;`
-        let std_pkg = registry.get_package("std", "standard").unwrap();
-        for (name_sym, type_id) in &std_pkg.types {
-            symbols
-                .define(root_scope, *name_sym, DeclRef::Type(*type_id))
-                .unwrap();
-        }
-
         // Notice we DO NOT import ieee.std_logic_1164 here.
         // The analyzer must wait until it parses a ContextItem::Use { path: "ieee.std_logic_1164.all" }
         // before looping through ieee_pkg and injecting them into the current file's scope.
 
         Self {
             ast,
+            units: asts,
+            current_file: FileId(0),
             symbols,
             types: registry.types.clone(),
             current_scope: root_scope,
@@ -60,14 +64,27 @@ impl<'a> super::SemanticAnalyzer<'a> {
             expr_types: Vec::new(),
         }
     }
+    pub fn set_active_file(&mut self, file_id: FileId) -> FileId {
+        let r = self.current_file;
+        self.current_file = file_id;
+        self.ast = &self.units[file_id.0 as usize];
+        r
+    }
 
-    pub fn analyze_all(&mut self, registry: &LibraryRegistry) {
-        for (i, entity) in self.ast.entities.iter().enumerate() {
-            self.analyze_entity(entity, i as u32, registry);
+    pub fn analyze_all_entities(&mut self, registry: &LibraryRegistry) {
+        for files in self.units.iter().enumerate().map(|f| FileId(f.0 as u32)) {
+            self.set_active_file(files);
+            for (i, entity) in self.ast.entities.iter().enumerate() {
+                self.analyze_entity(entity, i as u32, registry);
+            }
         }
-
-        for (i, arch) in self.ast.architectures.iter().enumerate() {
-            self.analyze_architecture(arch, i as u32, registry);
+    }
+    pub fn analyze_all_archs(&mut self, registry: &LibraryRegistry) {
+        for files in self.units.iter().enumerate().map(|f| FileId(f.0 as u32)) {
+            self.set_active_file(files);
+            for (i, arch) in self.ast.architectures.iter().enumerate() {
+                self.analyze_architecture(arch, i as u32, registry);
+            }
         }
     }
 
@@ -89,10 +106,11 @@ impl<'a> super::SemanticAnalyzer<'a> {
         }
 
         if !registry.libraries.contains_key(&lib_lower.to_string()) {
-            self.errors.push(SemanticError {
-                kind: SemanticErrorKind::UndefinedSymbol,
+            self.errors.push(SemanticError::new(
+                SemanticErrorKind::UndefinedSymbol,
                 span,
-            });
+                self.current_file,
+            ));
         }
     }
 
@@ -113,6 +131,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
                     self.errors.push(SemanticError::new(
                         SemanticErrorKind::MalformedUseClause(path),
                         span,
+                        self.current_file,
                     ));
                     return;
                 }
@@ -120,10 +139,11 @@ impl<'a> super::SemanticAnalyzer<'a> {
         }
 
         if parts.len() < 2 {
-            self.errors.push(SemanticError {
-                kind: SemanticErrorKind::MalformedUseClause(path),
+            self.errors.push(SemanticError::new(
+                SemanticErrorKind::MalformedUseClause(path),
                 span,
-            });
+                self.current_file,
+            ));
             return;
         }
         parts.reverse();
@@ -135,10 +155,11 @@ impl<'a> super::SemanticAnalyzer<'a> {
         let pkg = match registry.get_package(lib_name, pkg_name) {
             Some(p) => p,
             None => {
-                self.errors.push(SemanticError {
-                    kind: SemanticErrorKind::UndefinedSymbol,
+                self.errors.push(SemanticError::new(
+                    SemanticErrorKind::UndefinedSymbol,
                     span,
-                });
+                    self.current_file,
+                ));
                 return;
             }
         };
@@ -178,6 +199,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
                             .expect("Symbol should be present here"),
                     ),
                     span,
+                    self.current_file,
                 ));
             }
         }
@@ -200,14 +222,16 @@ impl<'a> super::SemanticAnalyzer<'a> {
             self.current_scope,
             entity_sym,
             DeclRef::Entity {
+                file_id: self.current_file,
                 entity_id: EntityId(entity_id),
                 scope_id: entity_scope,
             },
         ) {
-            self.errors.push(SemanticError {
-                kind: DuplicateDeclaration,
-                span: entity.span,
-            });
+            self.errors.push(SemanticError::new(
+                SemanticErrorKind::DuplicateDeclaration,
+                entity.span,
+                self.current_file,
+            ));
         }
 
         let prev_scope = self.current_scope;
@@ -240,10 +264,11 @@ impl<'a> super::SemanticAnalyzer<'a> {
                     mode: port.mode,
                 },
             ) {
-                self.errors.push(SemanticError {
-                    kind: SemanticErrorKind::DuplicateDeclaration,
-                    span: self.span(absolute_port_id),
-                });
+                self.errors.push(SemanticError::new(
+                    SemanticErrorKind::DuplicateDeclaration,
+                    self.span(absolute_port_id),
+                    self.current_file,
+                ));
             }
         }
 
@@ -265,12 +290,14 @@ impl<'a> super::SemanticAnalyzer<'a> {
             Some(DeclRef::Entity {
                 scope_id,
                 entity_id,
+                file_id,
             }) => (scope_id, entity_id),
             _s => {
-                self.errors.push(SemanticError {
-                    kind: SemanticErrorKind::EntitySpecifiedNotFound,
-                    span: arch.span,
-                });
+                self.errors.push(SemanticError::new(
+                    SemanticErrorKind::EntitySpecifiedNotFound,
+                    arch.span,
+                    self.current_file,
+                ));
                 return;
             }
         };
@@ -441,10 +468,11 @@ impl<'a> super::SemanticAnalyzer<'a> {
                                 mode: port.mode,
                             },
                         ) {
-                            self.errors.push(SemanticError {
-                                kind: SemanticErrorKind::DuplicateDeclaration,
-                                span: self.span(absolute_port_id),
-                            });
+                            self.errors.push(SemanticError::new(
+                                SemanticErrorKind::DuplicateDeclaration,
+                                self.span(absolute_port_id),
+                                self.current_file,
+                            ));
                         }
                     }
 
@@ -482,13 +510,14 @@ impl<'a> super::SemanticAnalyzer<'a> {
             match self.infer_expr_type(expr_id, Some(target_type_id)) {
                 Ok(expr_type) => {
                     if expr_type != target_type_id && expr_type != TypeId::ERROR {
-                        self.errors.push(SemanticError {
-                            kind: SemanticErrorKind::AssignmentTypeMismatch {
+                        self.errors.push(SemanticError::new(
+                            SemanticErrorKind::AssignmentTypeMismatch {
                                 expected: target_type_id,
                                 found: expr_type,
                             },
-                            span: self.span(expr_id),
-                        });
+                            self.span(expr_id),
+                            self.current_file,
+                        ));
                     }
                 }
                 Err(err) => {
@@ -499,10 +528,11 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
         let decl_ref = make_decl_ref(target_type_id);
         if let Err(_dup) = self.symbols.define(arch_scope, name, decl_ref) {
-            self.errors.push(SemanticError {
-                kind: SemanticErrorKind::DuplicateDeclaration,
-                span: self.span(decl_id),
-            });
+            self.errors.push(SemanticError::new(
+                SemanticErrorKind::DuplicateDeclaration,
+                self.span(decl_id),
+                self.current_file,
+            ));
         }
     }
 
@@ -575,13 +605,14 @@ impl<'a> super::SemanticAnalyzer<'a> {
                     match delay_type {
                         Ok(actual_type) if actual_type == self.type_time => {}
                         Ok(found_type) => {
-                            self.errors.push(SemanticError {
-                                kind: SemanticErrorKind::AssignmentTypeMismatch {
+                            self.errors.push(SemanticError::new(
+                                SemanticErrorKind::AssignmentTypeMismatch {
                                     expected: self.type_time,
                                     found: found_type,
                                 },
-                                span: self.span(*delay_expr),
-                            });
+                                self.span(*delay_expr),
+                                self.current_file,
+                            ));
                         }
                         Err(err) => self.errors.push(err),
                     }
@@ -596,10 +627,11 @@ impl<'a> super::SemanticAnalyzer<'a> {
             } => {
                 if let Some(sym) = *label {
                     if self.symbols.lookup(self.current_scope, sym).is_some() {
-                        self.errors.push(SemanticError {
-                            kind: SemanticErrorKind::DuplicateDeclaration,
-                            span: self.span(stmt_id),
-                        });
+                        self.errors.push(SemanticError::new(
+                            SemanticErrorKind::DuplicateDeclaration,
+                            self.span(stmt_id),
+                            self.current_file,
+                        ));
                     } else {
                         self.symbols.define(
                             self.current_scope,
@@ -624,15 +656,22 @@ impl<'a> super::SemanticAnalyzer<'a> {
                             unreachable!("DeclRef::Component must point to Decl::Component");
                         }
                     }
-                    Some(DeclRef::Entity { entity_id, .. }) => {
+                    Some(DeclRef::Entity {
+                        entity_id, file_id, ..
+                    }) => {
+                        let a = self.set_active_file(file_id);
                         let entity = &self.ast.entities[entity_id.0 as usize];
-                        &self.ast.ports[entity.ports_start.0 as usize..entity.ports_end.0 as usize]
+                        let b = &self.ast.ports
+                            [entity.ports_start.0 as usize..entity.ports_end.0 as usize];
+                        self.set_active_file(a);
+                        b
                     }
                     _ => {
-                        self.errors.push(SemanticError {
-                            kind: SemanticErrorKind::UndefinedSymbol,
-                            span: self.span(*component_name),
-                        });
+                        self.errors.push(SemanticError::new(
+                            SemanticErrorKind::UndefinedSymbol,
+                            self.span(*component_name),
+                            self.current_file,
+                        ));
                         return;
                     }
                 };
@@ -667,22 +706,25 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
                                     match formal_expr {
                                         // Formal was an identifier, but no matching port exists on the target entity
-                                        Expr::Identifier { name } => SemanticError {
-                                            kind: SemanticErrorKind::UndefinedSymbol,
-                                            span: self.span(formal_expr_id),
-                                        },
+                                        Expr::Identifier { name } => SemanticError::new(
+                                            SemanticErrorKind::UndefinedSymbol,
+                                            self.span(formal_expr_id),
+                                            self.current_file,
+                                        ),
                                         // Formal was an invalid expression construct
-                                        _ => SemanticError {
-                                            kind: SemanticErrorKind::PortAssocMustBeIdent,
-                                            span: self.span(formal_expr_id),
-                                        },
+                                        _ => SemanticError::new(
+                                            SemanticErrorKind::PortAssocMustBeIdent,
+                                            self.span(formal_expr_id),
+                                            self.current_file,
+                                        ),
                                     }
                                 }
                                 // Positional port mapping provided more arguments than ports declared in the entity
-                                None => SemanticError {
-                                    kind: SemanticErrorKind::PositionalPortAssociationOutOfBounds,
-                                    span: Span::from(port_map),
-                                },
+                                None => SemanticError::new(
+                                    SemanticErrorKind::PositionalPortAssociationOutOfBounds,
+                                    Span::from(port_map),
+                                    self.current_file,
+                                ),
                             };
 
                             self.errors.push(err);
@@ -702,13 +744,14 @@ impl<'a> super::SemanticAnalyzer<'a> {
                     match self.infer_expr_type(actual_expr_id, Some(formal_type)) {
                         Ok(actual_type) => {
                             if actual_type != formal_type && actual_type != TypeId::ERROR {
-                                self.errors.push(SemanticError {
-                                    kind: SemanticErrorKind::AssignmentTypeMismatch {
+                                self.errors.push(SemanticError::new(
+                                    SemanticErrorKind::AssignmentTypeMismatch {
                                         expected: formal_type,
                                         found: actual_type,
                                     },
-                                    span: self.span(actual_expr_id),
-                                });
+                                    self.span(actual_expr_id),
+                                    self.current_file,
+                                ));
                             }
                         }
                         Err(err) => self.errors.push(err),
@@ -724,10 +767,11 @@ impl<'a> super::SemanticAnalyzer<'a> {
                                 mode: PortMode::In, ..
                             }) = self.symbols.lookup(self.current_scope, *name)
                             {
-                                self.errors.push(SemanticError {
-                                    kind: SemanticErrorKind::WriteToInputPort,
-                                    span: self.span(actual_expr_id),
-                                });
+                                self.errors.push(SemanticError::new(
+                                    SemanticErrorKind::WriteToInputPort,
+                                    self.span(actual_expr_id),
+                                    self.current_file,
+                                ));
                             }
                         }
                     }
@@ -754,6 +798,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
             .map(|(idx, _)| DeclRef::Entity {
                 entity_id: EntityId(idx as u32),
                 scope_id: ScopeId(0),
+                file_id: todo!(),
             })
     }
 
@@ -763,17 +808,16 @@ impl<'a> super::SemanticAnalyzer<'a> {
         match cond_type_res {
             Ok(cond_type) => {
                 if cond_type != self.type_boolean {
-                    self.errors.push(SemanticError {
-                        kind: SemanticErrorKind::ConditionNotBoolean { found: cond_type },
-                        span: self.span(condition),
-                    });
+                    self.errors.push(SemanticError::new(
+                        SemanticErrorKind::ConditionNotBoolean { found: cond_type },
+                        self.span(condition),
+                        self.current_file,
+                    ))
                 }
             }
             Err(err) => {
-                self.errors.push(SemanticError {
-                    kind: err.kind,
-                    span: err.span,
-                });
+                self.errors
+                    .push(SemanticError::new(err.kind, err.span, self.current_file));
             }
         }
     }
@@ -839,13 +883,14 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
         if let (Ok(target_type), Ok(rhs_type)) = (target_type_res, rhs_type_res) {
             if target_type != rhs_type {
-                self.errors.push(SemanticError {
-                    kind: SemanticErrorKind::AssignmentTypeMismatch {
+                self.errors.push(SemanticError::new(
+                    SemanticErrorKind::AssignmentTypeMismatch {
                         expected: target_type,
                         found: rhs_type,
                     },
-                    span: self.span(rhs_expr),
-                });
+                    self.span(rhs_expr),
+                    self.current_file,
+                ));
             }
         }
 
@@ -855,36 +900,40 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
             match (base_sym_decl, is_signal_assign) {
                 (DeclRef::Variable { .. }, true) => {
-                    self.errors.push(SemanticError {
-                        kind: SemanticErrorKind::InvalidAssignmentKind {
+                    self.errors.push(SemanticError::new(
+                        SemanticErrorKind::InvalidAssignmentKind {
                             expected_signal: false,
                         },
-                        span: target_span,
-                    });
+                        target_span,
+                        self.current_file,
+                    ));
                 }
                 (DeclRef::Signal { .. }, false) => {
-                    self.errors.push(SemanticError {
-                        kind: SemanticErrorKind::InvalidAssignmentKind {
+                    self.errors.push(SemanticError::new(
+                        SemanticErrorKind::InvalidAssignmentKind {
                             expected_signal: true,
                         },
-                        span: target_span,
-                    });
+                        target_span,
+                        self.current_file,
+                    ));
                 }
                 (DeclRef::Port { mode, .. }, true) => {
                     if mode == PortMode::In {
-                        self.errors.push(SemanticError {
-                            kind: SemanticErrorKind::WriteToInputPort,
-                            span: target_span,
-                        });
+                        self.errors.push(SemanticError::new(
+                            SemanticErrorKind::WriteToInputPort,
+                            target_span,
+                            self.current_file,
+                        ));
                     }
                 }
                 (DeclRef::Constant { .. }, _) => {
-                    self.errors.push(SemanticError {
-                        kind: SemanticErrorKind::InvalidAssignmentKind {
+                    self.errors.push(SemanticError::new(
+                        SemanticErrorKind::InvalidAssignmentKind {
                             expected_signal: is_signal_assign,
                         },
-                        span: target_span,
-                    });
+                        target_span,
+                        self.current_file,
+                    ));
                 }
                 _ => {} // Valid assignments
             }

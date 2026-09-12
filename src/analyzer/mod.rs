@@ -10,6 +10,7 @@ use std::ops::Range;
 
 use crate::ast::*;
 use crate::parser::Span;
+use crate::workspace::FileId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
@@ -64,16 +65,23 @@ pub enum SemanticErrorKind {
 pub struct SemanticError {
     pub kind: SemanticErrorKind,
     pub span: Span,
+    pub file_id: FileId,
 }
 
 impl SemanticError {
-    pub fn new(kind: SemanticErrorKind, span: Span) -> Self {
-        Self { kind, span }
+    pub fn new(kind: SemanticErrorKind, span: Span, file_id: FileId) -> Self {
+        Self {
+            kind,
+            span,
+            file_id,
+        }
     }
 }
 
 pub struct SemanticAnalyzer<'a> {
-    pub ast: &'a AstArena,
+    ast: &'a AstArena,
+    units: &'a [AstArena],
+    current_file: FileId,
     pub symbols: &'a mut SymbolTable,
     pub types: TypeArena, // holds a vector of types that are referenced by TypeId
 
@@ -93,10 +101,12 @@ pub struct SemanticAnalyzer<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeclRef {
     Entity {
+        file_id: FileId,
         entity_id: EntityId,
         scope_id: ScopeId,
     },
     Architecture {
+        file_id: FileId,
         ast_id: ArchitectureId,
         entity_id: EntityId,
         scope_id: ScopeId,

@@ -68,31 +68,31 @@ impl<'a> Workspace<'a> {
     }
     pub fn analyze(&mut self) {
         let registry = LibraryRegistry::initialize_builtins(&mut self.table.interner);
+        let s_ref = &mut self.table;
+        let asts = self.files.as_slice();
 
-        for (i, arena) in self.files.iter().enumerate() {
-            let s_ref = &mut self.table;
-
-            let mut sa = SemanticAnalyzer::new(arena, s_ref, &registry);
-            sa.analyze_all(&registry);
-
-            if !sa.errors.is_empty() {
+        let mut sa = SemanticAnalyzer::new(asts, s_ref, &registry);
+        sa.analyze_all_entities(&registry);
+        sa.analyze_all_archs(&registry);
+        if !sa.errors.is_empty() {
+            eprintln!(
+                "Semantic Analysis failed inwith {} error(s):",
+                // self.paths[i],
+                sa.errors.len()
+            );
+            for err in &sa.errors {
+                let i = err.file_id.0 as usize;
                 eprintln!(
-                    "Semantic Analysis failed with {} error(s):",
-                    sa.errors.len()
+                    "  {}",
+                    SAFormatCtx {
+                        item: err,
+                        arena: &self.files[i],
+                        indent: 0,
+                        sa: &sa,
+                        path: self.paths[i],
+                        source: self.strings[i],
+                    }
                 );
-                for err in &sa.errors {
-                    eprintln!(
-                        "  {}",
-                        SAFormatCtx {
-                            item: err,
-                            arena,
-                            indent: 0,
-                            sa: &sa,
-                            path: self.paths[i],
-                            source: self.strings[i],
-                        }
-                    );
-                }
             }
         }
     }

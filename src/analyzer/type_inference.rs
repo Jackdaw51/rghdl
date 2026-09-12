@@ -22,7 +22,9 @@ impl<'a> SemanticAnalyzer<'a> {
             }
             Expr::Grouping { expr } => self.infer_expr_type(*expr, expected_type),
             Expr::CallOrIndex { callee, args } => self.infer_call_or_index(*callee, &args, expr_id),
-            Expr::Aggregate { elements } => self.infer_aggregate(elements.clone(), expected_type, expr_id),
+            Expr::Aggregate { elements } => {
+                self.infer_aggregate(elements.clone(), expected_type, expr_id)
+            }
             Expr::Others => self.infer_others(expected_type, expr_id),
             Expr::Slice {
                 target,
@@ -56,15 +58,19 @@ impl<'a> SemanticAnalyzer<'a> {
 
         match self.types.get(target_ty) {
             Some(TypeKind::Record { fields, name }) => {
-                fields.get(&field).copied().ok_or_else(|| SemanticError {
-                    kind: SemanticErrorKind::UnknownRecordField,
-                    span: self.span(whole_expr),
+                fields.get(&field).copied().ok_or_else(|| {
+                    SemanticError::new(
+                        SemanticErrorKind::UnknownRecordField,
+                        self.span(whole_expr),
+                        self.current_file,
+                    )
                 })
             }
-            _ => Err(SemanticError {
-                kind: SemanticErrorKind::NotARecord,
-                span: self.span(whole_expr),
-            }),
+            _ => Err(SemanticError::new(
+                SemanticErrorKind::NotARecord,
+                self.span(whole_expr),
+                self.current_file,
+            )),
         }
     }
 
@@ -76,10 +82,11 @@ impl<'a> SemanticAnalyzer<'a> {
     ) -> Result<TypeId, SemanticError> {
         let scalar_type = self.infer_expr_type(value, Some(self.type_integer))?;
         if scalar_type != self.type_integer && scalar_type != self.type_real {
-            return Err(SemanticError {
-                kind: SemanticErrorKind::InvalidLiteral,
-                span: self.span(value),
-            });
+            return Err(SemanticError::new(
+                SemanticErrorKind::InvalidLiteral,
+                self.span(value),
+                self.current_file,
+            ));
         }
 
         match self.symbols.lookup(self.current_scope, unit) {
@@ -87,10 +94,12 @@ impl<'a> SemanticAnalyzer<'a> {
             Some(_) => Err(SemanticError::new(
                 SemanticErrorKind::UnknownType,
                 self.span(whole_expr),
+                self.current_file,
             )),
             None => Err(SemanticError::new(
                 SemanticErrorKind::UndefinedSymbol,
                 self.span(whole_expr),
+                self.current_file,
             )),
         }
     }
@@ -112,10 +121,11 @@ impl<'a> SemanticAnalyzer<'a> {
         // Slicing an array (`signal(7 downto 0)`) produces the same array type
         match self.types.get(target_ty) {
             Some(TypeKind::Array { .. }) => Ok(target_ty),
-            _ => Err(SemanticError {
-                kind: SemanticErrorKind::CannotSliceNonArray,
-                span: self.span(whole_expr),
-            }),
+            _ => Err(SemanticError::new(
+                SemanticErrorKind::CannotSliceNonArray,
+                self.span(whole_expr),
+                self.current_file,
+            )),
         }
     }
 
@@ -131,17 +141,19 @@ impl<'a> SemanticAnalyzer<'a> {
                 Ok(ty)
             } else {
                 // The symbol exists, but its underlying type is broken/unresolved.
-                Err(SemanticError {
-                    kind: SemanticErrorKind::UnknownType,
-                    span: self.span(expr_id),
-                })
+                Err(SemanticError::new(
+                    SemanticErrorKind::UnknownType,
+                    self.span(expr_id),
+                    self.current_file,
+                ))
             }
         } else {
             // The symbol was never declared in this scope at all.
-            Err(SemanticError {
-                kind: SemanticErrorKind::UndefinedSymbol,
-                span: self.span(expr_id),
-            })
+            Err(SemanticError::new(
+                SemanticErrorKind::UndefinedSymbol,
+                self.span(expr_id),
+                self.current_file,
+            ))
         }
     }
     #[inline]
@@ -192,10 +204,11 @@ impl<'a> SemanticAnalyzer<'a> {
             return Ok(self.type_integer);
         }
 
-        Err(SemanticError {
-            kind: SemanticErrorKind::InvalidLiteral,
-            span: self.span(expr_id),
-        })
+        Err(SemanticError::new(
+            SemanticErrorKind::InvalidLiteral,
+            self.span(expr_id),
+            self.current_file,
+        ))
     }
 
     fn infer_unary(
@@ -220,19 +233,21 @@ impl<'a> SemanticAnalyzer<'a> {
                         {
                             Ok(operand_ty)
                         }
-                        _ => Err(SemanticError {
-                            kind: SemanticErrorKind::InvalidUnaryOperand,
-                            span: self.span(whole_expr),
-                        }),
+                        _ => Err(SemanticError::new(
+                            SemanticErrorKind::InvalidUnaryOperand,
+                            self.span(whole_expr),
+                            self.current_file,
+                        )),
                     }
                 }
             }
             UnaryOp::Abs | UnaryOp::Neg | UnaryOp::Plus => match self.types.get(operand_ty) {
                 Some(TypeKind::Integer { name }) | Some(TypeKind::Real { name }) => Ok(operand_ty),
-                _ => Err(SemanticError {
-                    kind: SemanticErrorKind::InvalidUnaryOperand,
-                    span: self.span(whole_expr),
-                }),
+                _ => Err(SemanticError::new(
+                    SemanticErrorKind::InvalidUnaryOperand,
+                    self.span(whole_expr),
+                    self.current_file,
+                )),
             },
         }
     }
@@ -257,22 +272,26 @@ impl<'a> SemanticAnalyzer<'a> {
                 let rhs_ty = self.infer_expr_type(rhs, Some(lhs_ty))?;
 
                 if lhs_ty != rhs_ty {
-                    return Err(SemanticError {
-                        kind: SemanticErrorKind::AssignmentTypeMismatch {
+                    return Err(SemanticError::new(
+                        SemanticErrorKind::AssignmentTypeMismatch {
                             expected: lhs_ty,
                             found: rhs_ty,
                         },
-                        span: self.span(rhs),
-                    });
+                        self.span(rhs),
+                        self.current_file,
+                    ));
                 }
                 Ok(self.type_boolean)
             }
 
             BinaryOp::Concat => {
                 // We must have an expected array type to build a concatenation
-                let target_array_ty = expected_type.ok_or_else(|| SemanticError {
-                    kind: SemanticErrorKind::CannotInferAggregateWithoutContext,
-                    span: self.span(whole_expr),
+                let target_array_ty = expected_type.ok_or_else(|| {
+                    SemanticError::new(
+                        SemanticErrorKind::CannotInferAggregateWithoutContext,
+                        self.span(whole_expr),
+                        self.current_file,
+                    )
                 })?;
 
                 // TODO
@@ -294,13 +313,14 @@ impl<'a> SemanticAnalyzer<'a> {
                 let rhs_ty = self.infer_expr_type(rhs, Some(lhs_ty))?;
 
                 if lhs_ty != rhs_ty {
-                    return Err(SemanticError {
-                        kind: SemanticErrorKind::AssignmentTypeMismatch {
+                    return Err(SemanticError::new(
+                        SemanticErrorKind::AssignmentTypeMismatch {
                             expected: lhs_ty,
                             found: rhs_ty,
                         },
-                        span: self.span(rhs),
-                    });
+                        self.span(rhs),
+                        self.current_file,
+                    ));
                 }
                 Ok(lhs_ty)
             }
@@ -336,10 +356,11 @@ impl<'a> SemanticAnalyzer<'a> {
         match target_kind {
             TargetKind::Array(element_type) => {
                 if arg_ids.is_empty() {
-                    return Err(SemanticError {
-                        kind: SemanticErrorKind::CannotIndexOrCallNonArray,
-                        span: self.span(whole_expr),
-                    });
+                    return Err(SemanticError::new(
+                        SemanticErrorKind::CannotIndexOrCallNonArray,
+                        self.span(whole_expr),
+                        self.current_file,
+                    ));
                 }
                 for &arg_id in arg_ids {
                     self.infer_expr_type(arg_id, Some(self.type_integer))?;
@@ -348,10 +369,11 @@ impl<'a> SemanticAnalyzer<'a> {
             }
             TargetKind::Function(expected_args, return_type) => {
                 if arg_ids.len() != expected_args.len() {
-                    return Err(SemanticError {
-                        kind: SemanticErrorKind::AggregateSizeMismatch,
-                        span: self.span(whole_expr),
-                    });
+                    return Err(SemanticError::new(
+                        SemanticErrorKind::AggregateSizeMismatch,
+                        self.span(whole_expr),
+                        self.current_file,
+                    ));
                 }
                 for (&arg_id, &expected_param_ty) in arg_ids.iter().zip(expected_args.iter()) {
                     self.infer_expr_type(arg_id, Some(expected_param_ty))?;
@@ -361,18 +383,20 @@ impl<'a> SemanticAnalyzer<'a> {
             TargetKind::TypeConversion(target_type) => {
                 // VHDL type conversions take exactly one argument: TargetType(expr)
                 if arg_ids.len() != 1 {
-                    return Err(SemanticError {
-                        kind: SemanticErrorKind::CannotIndexOrCallNonArray,
-                        span: self.span(whole_expr),
-                    });
+                    return Err(SemanticError::new(
+                        SemanticErrorKind::CannotIndexOrCallNonArray,
+                        self.span(whole_expr),
+                        self.current_file,
+                    ));
                 }
                 self.infer_expr_type(arg_ids[0], None)?;
                 Ok(target_type)
             }
-            TargetKind::Invalid => Err(SemanticError {
-                kind: SemanticErrorKind::CannotIndexOrCallNonArray,
-                span: self.span(whole_expr),
-            }),
+            TargetKind::Invalid => Err(SemanticError::new(
+                SemanticErrorKind::CannotIndexOrCallNonArray,
+                self.span(whole_expr),
+                self.current_file,
+            )),
         }
     }
 
@@ -382,9 +406,12 @@ impl<'a> SemanticAnalyzer<'a> {
         expected_type: Option<TypeId>,
         whole_expr: ExprId,
     ) -> Result<TypeId, SemanticError> {
-        let expected = expected_type.ok_or_else(|| SemanticError {
-            kind: SemanticErrorKind::CannotInferAggregateWithoutContext,
-            span: self.span(whole_expr),
+        let expected = expected_type.ok_or_else(|| {
+            SemanticError::new(
+                SemanticErrorKind::CannotInferAggregateWithoutContext,
+                self.span(whole_expr),
+                self.current_file,
+            )
         })?;
 
         enum AggKind {
@@ -415,23 +442,25 @@ impl<'a> SemanticAnalyzer<'a> {
                 // This assumes positional aggregate mapping.
                 // TODO Named associations (e.g., `(a => '1', b => '0')`) require more complex logic.
                 if element_expr_ids.len() != field_tys.len() {
-                    return Err(SemanticError {
-                        kind: SemanticErrorKind::AggregateSizeMismatch,
-                        span: self.span(whole_expr),
-                    });
+                    return Err(SemanticError::new(
+                        SemanticErrorKind::AggregateSizeMismatch,
+                        self.span(whole_expr),
+                        self.current_file,
+                    ));
                 }
                 for (&elem_id, &field_ty) in element_expr_ids.iter().zip(field_tys.iter()) {
                     self.infer_expr_type(elem_id, Some(field_ty))?;
                 }
                 Ok(expected)
             }
-            AggKind::Invalid => Err(SemanticError {
-                kind: SemanticErrorKind::AssignmentTypeMismatch {
+            AggKind::Invalid => Err(SemanticError::new(
+                SemanticErrorKind::AssignmentTypeMismatch {
                     expected,
                     found: expected,
                 },
-                span: self.span(whole_expr),
-            }),
+                self.span(whole_expr),
+                self.current_file,
+            )),
         }
     }
 
@@ -441,9 +470,12 @@ impl<'a> SemanticAnalyzer<'a> {
         whole_expr: ExprId,
     ) -> Result<TypeId, SemanticError> {
         // `others` inherits the element type passed down from `infer_aggregate`
-        expected_type.ok_or_else(|| SemanticError {
-            kind: SemanticErrorKind::OthersRequiresContextualType,
-            span: self.span(whole_expr),
+        expected_type.ok_or_else(|| {
+            SemanticError::new(
+                SemanticErrorKind::OthersRequiresContextualType,
+                self.span(whole_expr),
+                self.current_file,
+            )
         })
     }
 }
