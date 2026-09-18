@@ -1,28 +1,36 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::HashMap;
-use std::fs;
-use std::{fmt::Write, process::Command};
+use std::{env, fs};
 
-use crate::ast::{AstArena, ContextItem, Entity, Expr, Port, PortMode};
-use crate::elaborator::{ElaboratedArena, ElaboratedDesign, LibraryRegistry};
-use crate::printer::{SAFormatCtx, VhdlEmitter};
+use crate::ast::AstArena;
+use crate::printer::FormatCtx;
+use crate::validation::validation::run_ghdl_validation;
 use crate::workspace::Workspace;
-use crate::{
-    analyzer::{SemanticAnalyzer, SymbolTable},
-    elaborator::Elaborator,
-    parser::Parser,
-    printer::{ElaboratedFormatCtx, FormatCtx},
-};
 
 mod analyzer;
 pub(crate) mod ast;
 mod elaborator;
 mod parser;
 mod printer;
+mod validation;
 mod workspace;
+const TOP_E_NAME: &str = "full_adder";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = env::args().collect();
+    if args.len() >= 3 {
+        eprintln!("Maximum one top entity level name is expected");
+        return Ok(());
+    }
+
+    let top_entity_name = match args.get(1) {
+        Some(x) => x,
+        None => {
+            println!("Using default top entity name: {}", TOP_E_NAME);
+            TOP_E_NAME
+        }
+    };
+
     // let path = "test_files/and_gate.vhd";
     let path = "test_files/audio_testbench.vhd";
     // let path = "test_files/sine_wave_440hz.vhd";
@@ -65,60 +73,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
     };
-    workspace.print_ast()?;
-    workspace.analyze();
-    return Ok(());
+    // workspace.print_ast()?;
+    let sa = workspace.analyze(top_entity_name);
+    let Some(elaborated_vhdl) = sa else {
+        return Ok(());
+    };
+    print!("=== Elaborated VHDL Output ===\n{}", elaborated_vhdl);
 
-    // let mut s_table = SymbolTable::new();
-    // let registry = LibraryRegistry::initialize_builtins(&mut s_table.interner);
+    let flattened = format!("flattened/{}_flat.vhd", top_entity_name);
 
-    // let mut sa = SemanticAnalyzer::new(&parser.arena, s_table, &source_string, &registry);
-    // sa.analyze_all(&registry);
+    let top_e = format!("{top_entity_name}_flat");
 
-    // if !sa.errors.is_empty() {
-    //     eprintln!(
-    //         "Semantic Analysis failed with {} error(s):",
-    //         sa.errors.len()
-    //     );
-    //     for err in &sa.errors {
-    //         eprintln!(
-    //             "  {}",
-    //             SAFormatCtx {
-    //                 item: err,
-    //                 source: &source_string,
-    //                 arena: &parser.arena,
-    //                 indent: 0,
-    //                 sa: &sa
-    //             }
-    //         );
-    //     }
-    //     return Ok(());
-    // }
 
-    // let ast = &parser.arena;
-    // let mut elaborator = Elaborator::new(ast, &sa);
-
-    // let top_entity_ast = ast.entities.first().ok_or("No entity found in AST")?;
-
-    // let top_instance = match elaborator.elaborate_all(&registry, top_entity_ast.name) {
-    //     Ok(inst) => inst,
-    //     Err(err) => {
-    //         eprintln!("Elaboration Error: {:?}", err);
-    //         return Ok(());
-    //     }
-    // };
-
-    // let elaborated_vhdl = VhdlEmitter::new(&sa, &elaborator.arena)
-    //     .emit_design(&top_instance)
-    //     .expect("Something went wrong with vhdl emitting");
-
-    // print!("=== Elaborated VHDL Output ===\n{}", elaborated_vhdl);
-
-    // let output_path = &path.replace("velha_test_files/", "");
-    // let name = &output_path.replace(".vhd", "");
-    // let flattened = format!("velha_test_files/{}_flat.vhd", name);
-
-    // fs::write(&flattened, &elaborated_vhdl)?;
+    fs::write(&flattened, &elaborated_vhdl)?;
+    run_ghdl_validation(&flattened, &top_e)?;
 
     // let testbench = generate_all_equivalence_testbenches(&elaborator.arena, &sa);
 
@@ -138,4 +106,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //         indent: 0
     //     };
     // println!("{format}");
+    return Ok(());
 }

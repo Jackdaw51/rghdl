@@ -1,9 +1,9 @@
 use crate::{
-    analyzer::{ScopeArena, SemanticAnalyzer, SymbolInterner, SymbolTable},
+    analyzer::{DeclRef, ScopeId, SemanticAnalyzer, SymbolTable},
     ast::AstArena,
-    elaborator::LibraryRegistry,
+    elaborator::{Elaborator, LibraryRegistry},
     parser::{ParseError, Parser},
-    printer::{FormatCtx, SAFormatCtx},
+    printer::{FormatCtx, SAFormatCtx, VhdlEmitter},
     workspace::{FileId, Workspace},
 };
 use std::fmt::Write;
@@ -16,6 +16,7 @@ impl<'a> Workspace<'a> {
             file_counter: 0,
             strings,
             paths,
+            registry: LibraryRegistry::new(),
         }
     }
     pub fn get_file(&self, file_id: FileId) -> Option<&AstArena> {
@@ -48,7 +49,6 @@ impl<'a> Workspace<'a> {
     pub fn print_ast(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut ast_dump = String::new();
         for file_id in (0..self.file_counter).map(|f| FileId(f)) {
-            dbg!(file_id);
             let arena = self.get_file(file_id).unwrap();
             let source_string = self.get_string(file_id).unwrap();
             write!(
@@ -66,7 +66,7 @@ impl<'a> Workspace<'a> {
         }
         Ok(())
     }
-    pub fn analyze(&mut self) {
+    pub fn analyze(&mut self, top_entity: &str) -> Option<String>{
         let registry = LibraryRegistry::initialize_builtins(&mut self.table.interner);
         let s_ref = &mut self.table;
         let asts = self.files.as_slice();
@@ -74,9 +74,10 @@ impl<'a> Workspace<'a> {
         let mut sa = SemanticAnalyzer::new(asts, s_ref, &registry);
         sa.analyze_all_entities(&registry);
         sa.analyze_all_archs(&registry);
+        self.registry = registry;
         if !sa.errors.is_empty() {
             eprintln!(
-                "Semantic Analysis failed inwith {} error(s):",
+                "Semantic Analysis failed with {} error(s):",
                 // self.paths[i],
                 sa.errors.len()
             );
@@ -94,6 +95,22 @@ impl<'a> Workspace<'a> {
                     }
                 );
             }
+            return None;
         }
+        let mut elaborator = Elaborator::new(&sa);
+
+        let top_instance = match elaborator.elaborate_all(&self.registry, top_entity) {
+            Ok(inst) => inst,
+            Err(err) => {
+                eprintln!("Elaboration Error: {:?}", err);
+                return None;
+            }
+        };
+
+        let elaborated_vhdl = VhdlEmitter::new(&sa, &elaborator.arena)
+            .emit_design(&top_instance)
+            .expect("Something went wrong with vhdl emitting");
+
+        Some(elaborated_vhdl)
     }
 }

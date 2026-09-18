@@ -1,6 +1,5 @@
 use crate::{
-    analyzer::{SymbolId, SymbolInterner, TypeKind},
-    elaborator::{Environment, EvaluatedValue, Library, LibraryRegistry, Package, SignalId},
+    analyzer::{SymbolId, SymbolInterner, TypeKind}, ast::PortId, elaborator::{ComponentSignature, ElaboratorError, Environment, EvaluatedValue, Library, LibraryRegistry, Package, SignalId},
 };
 
 impl Environment {
@@ -27,6 +26,22 @@ impl Environment {
         clone: EvaluatedValue,
     ) -> Option<EvaluatedValue> {
         self.constants.insert(sym, clone)
+    }
+
+    pub(crate) fn register_component_signature(
+        &mut self,
+        sym: SymbolId,
+        ports_start: PortId,
+        ports_end: PortId,
+    ) -> Result<(), ElaboratorError> {
+        self.components.insert(
+            sym,
+            ComponentSignature {
+                ports_start,
+                ports_end,
+            },
+        );
+        Ok(())
     }
 
     pub(crate) fn lookup_signal(&self, target_symbol: SymbolId) -> Option<SignalId> {

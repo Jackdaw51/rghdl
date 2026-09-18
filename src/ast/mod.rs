@@ -294,33 +294,46 @@ pub trait GetSpan<Id> {
     fn span(&self, id: Id) -> Span;
 }
 
-impl GetSpan<PortId> for AstArena{
+impl GetSpan<PortId> for AstArena {
     #[inline]
     fn span(&self, id: PortId) -> Span {
         self.port_spans[id.0 as usize]
     }
-} 
-impl GetSpan<DeclId> for AstArena{
+}
+impl GetSpan<DeclId> for AstArena {
     #[inline]
     fn span(&self, id: DeclId) -> Span {
         self.decl_span[id.0 as usize]
     }
-} 
-impl GetSpan<SeqStmtId> for AstArena{
+}
+impl GetSpan<SeqStmtId> for AstArena {
     #[inline]
     fn span(&self, id: SeqStmtId) -> Span {
         self.seq_span[id.0 as usize]
     }
-} 
-impl GetSpan<ConcStmtId> for AstArena{
+}
+impl GetSpan<ConcStmtId> for AstArena {
     #[inline]
     fn span(&self, id: ConcStmtId) -> Span {
         self.conc_span[id.0 as usize]
     }
-} 
-impl GetSpan<ExprId> for AstArena{
+}
+impl GetSpan<ExprId> for AstArena {
     #[inline]
     fn span(&self, id: ExprId) -> Span {
         self.expr_span[id.0 as usize]
     }
-} 
+}
+pub trait GetThing<Id, Thing> {
+    fn get_thing(&self, id: Id) -> &Thing;
+}
+impl GetThing<ArchitectureId, Architecture> for AstArena {
+    fn get_thing(&self, id: ArchitectureId) -> &Architecture {
+        &self.architectures[id.0 as usize]
+    }
+}
+impl GetThing<EntityId,Entity> for AstArena{
+    fn get_thing(&self, id: EntityId) -> &Entity {
+        &self.entities[id.0 as usize]
+    }
+}

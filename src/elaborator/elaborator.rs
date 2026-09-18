@@ -1,1015 +1,1162 @@
-// use std::collections::HashMap;
-// use std::ops::Range;
-
-// use crate::analyzer::{TypeId, TypeKind};
-// use crate::ast::{
-//     Architecture, AstArena, BinaryOp, ConcurrentStmt, ContextItem, Decl, Entity, Expr, Port,
-//     SequentialStmt, UnaryOp,
-// };
-// use crate::elaborator::{ElaboratedDesign, ElaboratedSequentialStmt, LibraryRegistry};
-// use crate::parser::{Span, TokenKind};
-// use crate::{
-//     analyzer::{SemanticAnalyzer, SymbolId},
-//     elaborator::{
-//         ElaboratedArena, ElaboratedConcurrentAssignment, ElaboratedPort, ElaboratedProcess,
-//         ElaboratedSignal, Elaborator, ElaboratorError, Environment, EvaluatedExpr, EvaluatedValue,
-//         ExprId, InstanceId, InstanceNode, PortBinding, ProcessId, SignalId,
-//     },
-// };
-
-// impl<'a> Elaborator<'a> {
-//     pub fn new(ast: &'a AstArena, sa: &'a SemanticAnalyzer<'a>) -> Self {
-//         Self {
-//             ast,
-//             sa,
-//             arena: ElaboratedArena::default(),
-//             instance_counter: 0,
-//         }
-//     }
-
-//     /// Elaborates all entity and architecture combinations present in the AST file.
-//     pub fn elaborate_all(
-//         &mut self,
-//         registry: &LibraryRegistry,
-//         top_entity_name: &str,
-//     ) -> Result<ElaboratedDesign, ElaboratorError> {
-//         let mut root_instances = Vec::new();
-//         let mut root_instance = InstanceId(0);
-//         for entity in &self.ast.entities {
-//             // Find all architectures corresponding to this entity
-//             let matching_archs: Vec<_> = self
-//                 .ast
-//                 .architectures
-//                 .iter()
-//                 .filter(|arch| {
-//                     let span_text = &self.sa.source[arch.entity_name.start..arch.entity_name.end];
-//                     span_text == &self.sa.source[entity.name_span.start..entity.name_span.end]
-//                 })
-//                 .collect();
-
-//             if matching_archs.is_empty() {
-//                 return Err(ElaboratorError::ArchitectureNotFound(
-//                     self.sa.source.[entity.name_span.start..entity.name_span.end].to_string(),
-//                 ));
-//             }
-
-//             for arch in matching_archs {
-//                 let mut env = Environment::new();
-//                 self.elaborate_context_items(&mut env, registry)?;
-
-//                 let entity_sym = self.get_symbol_unw(entity.name);
-
-//                 // Distinguish instance hierarchical paths when an entity has multiple architectures
-//                 let root_path = format!("{}_{}", entity.name, arch.name);
-
-//                 let inst_id = self.elaborate_instance(
-//                     entity_sym,
-//                     entity,
-//                     arch,
-//                     &HashMap::new(),
-//                     &root_path,
-//                     &mut env,
-//                 )?;
-//                 root_instances.push(inst_id);
-//                 if entity.name == top_entity_name {
-//                     root_instance = inst_id;
-//                 }
-//             }
-//         }
-
-//         Ok(ElaboratedDesign {
-//             instances: root_instances,
-//             root_instance,
-//         })
-//     }
-
-//     fn elaborate_instance(
-//         &mut self,
-//         instance_name: SymbolId,
-//         entity: &Entity<'a>,
-//         arch: &Architecture<'a>,
-//         generic_overrides: &HashMap<SymbolId, EvaluatedValue>,
-//         path: &str,
-//         parent_env: &mut Environment,
-//     ) -> Result<InstanceId, ElaboratorError> {
-//         let mut local_env = Environment::new();
-
-//         let evaluated_generics =
-//             self.elaborate_generics(entity, generic_overrides, &mut local_env)?;
-
-//         let ports = self.elaborate_ports(entity, parent_env, &mut local_env)?;
-//         let local_signals = self.elaborate_declarations(arch, &mut local_env)?;
-
-//         // Concurrent Statements
-//         let mut processes = Vec::new();
-//         let mut concurrent_assignments = Vec::new();
-//         let mut children = Vec::new();
-
-//         for stmt in self.ast.conc_statements(arch.stmts.clone()) {
-//             match stmt {
-//                 ConcurrentStmt::ConcurrentAssignment {
-//                     target,
-//                     expression,
-//                     after,
-//                     ..
-//                 } => {
-//                     let target_sig = self.resolve_expr_signal(*target, &local_env)?;
-//                     let expr_id = self.lower_expr(*expression, &local_env)?;
-//                     let delay_expr = after
-//                         .map(|delay_ast_id| self.lower_expr(delay_ast_id, &local_env))
-//                         .transpose()?;
-//                     concurrent_assignments.push(ElaboratedConcurrentAssignment {
-//                         target_signal: target_sig,
-//                         value_expr: expr_id,
-//                         delay_expr,
-//                     });
-//                 }
-//                 ConcurrentStmt::ConditionalAssignment { .. } => {
-//                     todo!()
-//                 }
-//                 ConcurrentStmt::Process {
-//                     stmts,
-//                     process_vars,
-//                     label,
-//                     ..
-//                 } => {
-//                     let process_name_str = match label {
-//                         Some(lbl) => lbl.to_string(),
-//                         None => {
-//                             // Generate a unique, illegal-in-VHDL name so it never clashes with user code
-//                             format!("_unlabeled_process_{}", stmts.start)
-//                         }
-//                     };
-//                     // let proc_id = self.elaborate_process(
-//                     //     label.unwrap_or("anon_process"),
-//                     //     process_vars,
-//                     //     *stmts,
-//                     //     &local_env,
-//                     // )?;
-//                     // processes.push(proc_id);
-//                 }
-//                 ConcurrentStmt::ComponentInstantiation {
-//                     label,
-//                     component_name,
-//                     arch_qualifier,
-//                     generic_map,
-//                     port_map,
-//                 } => {
-//                     let child_id = self.elaborate_component_instantiation(
-//                         *label,
-//                         *component_name,
-//                         *arch_qualifier,
-//                         generic_map.clone(),
-//                         port_map.clone(),
-//                         path,
-//                         &mut local_env,
-//                     )?;
-//                     children.push(child_id);
-//                 }
-//             }
-//         }
-
-//         let node = InstanceNode {
-//             instance_name,
-//             entity_name: self.get_symbol_unw(entity.name),
-//             architecture_name: self.get_symbol_unw(arch.name),
-//             hierarchical_path: path.to_string(),
-//             generics: evaluated_generics,
-//             ports,
-//             port_bindings: Vec::new(),
-//             local_signals,
-//             local_constants: local_env.constants.clone(),
-//             concurrent_assignments,
-//             processes,
-//             children,
-//         };
-
-//         let inst_id = InstanceId(self.arena.instances.len() as u32);
-//         self.arena.instances.push(node);
-//         Ok(inst_id)
-//     }
-
-//     fn elaborate_generics(
-//         &mut self,
-//         entity: &Entity<'a>,
-//         overrides: &HashMap<SymbolId, EvaluatedValue>,
-//         env: &mut Environment,
-//     ) -> Result<HashMap<SymbolId, EvaluatedValue>, ElaboratorError> {
-//         let mut resolved = HashMap::new();
-//         let decl_slice =
-//             &self.ast.decls[entity.generics_start.0 as usize..entity.generics_end.0 as usize];
-
-//         for decl in decl_slice {
-//             if let Decl::Constant {
-//                 //TODO check if it's correct
-//                 name,
-//                 default_val,
-//                 ..
-//             } = decl
-//             {
-//                 let sym = self.get_symbol_unw(name);
-//                 let val = if let Some(val_override) = overrides.get(&sym) {
-//                     val_override.clone()
-//                 } else if let Some(expr_id) = default_val {
-//                     self.eval_const_expr(*expr_id, env)?
-//                 } else {
-//                     return Err(ElaboratorError::EvaluationFailed {
-//                         reason: format!("Generic parameter '{}' missing default value", name),
-//                         span: Span { start: 0, end: 0 }, //TODO
-//                     });
-//                 };
-//                 env.insert_constant(sym, val.clone());
-//                 resolved.insert(sym, val);
-//             }
-//         }
-//         Ok(resolved)
-//     }
-
-//     fn resolve_port_type(&self, port: &Port<'a>) -> Result<TypeId, ElaboratorError> {
-//         self.sa
-//             .expr_types
-//             .get(port.port_type.0 as usize)
-//             .copied()
-//             .ok_or_else(|| ElaboratorError::EvaluationFailed {
-//                 reason: format!("Failed to resolve type for port '{}'", port.name),
-//                 span: port.name_span,
-//             })
-//     }
-
-//     fn elaborate_ports(
-//         &mut self,
-//         entity: &Entity<'a>,
-//         parent_env: &Environment,
-//         local_env: &mut Environment,
-//     ) -> Result<Vec<ElaboratedPort>, ElaboratorError> {
-//         let mut ports = Vec::new();
-//         let port_slice =
-//             &self.ast.ports[entity.ports_start.0 as usize..entity.ports_end.0 as usize];
-
-//         for port in port_slice {
-//             let type_id = self.resolve_port_type(port)?;
-//             let sym = self.get_symbol_unw(port.name);
-//             let sig_id = self.arena.alloc_signal(ElaboratedSignal {
-//                 name: sym,
-//                 type_id, // Populated via SA resolution
-//                 high_bound: 0,
-//                 low_bound: 0,
-//                 driver_count: 0,
-//             });
-//             local_env.insert_signal(sym, sig_id);
-//             ports.push(ElaboratedPort {
-//                 name: sym,
-//                 mode: port.mode,
-//                 type_id,
-//                 high_bound: 0, //TODO
-//                 low_bound: 0,
-//             });
-//         }
-//         Ok(ports)
-//     }
-
-//     fn elaborate_declarations(
-//         &mut self,
-//         arch: &Architecture<'a>,
-//         env: &mut Environment,
-//     ) -> Result<Vec<SignalId>, ElaboratorError> {
-//         let mut signals = Vec::new();
-//         let decl_slice = &self.ast.decls[arch.decls_start.0 as usize..arch.decls_end.0 as usize];
-
-//         for decl in decl_slice {
-//             match decl {
-//                 Decl::Signal {
-//                     name,
-//                     decl_type,
-//                     default_val,
-//                 } => {
-//                     let sym = self.get_symbol_unw(name);
-
-//                     let type_id = self.resolve_type_by_name(decl_type)?;
-//                     let (high_bound, low_bound) = self.get_type_bounds(type_id);
-//                     let sig_id = self.arena.alloc_signal(ElaboratedSignal {
-//                         name: sym,
-//                         type_id,
-//                         high_bound,
-//                         low_bound,
-//                         driver_count: 0,
-//                     });
-
-//                     env.insert_signal(sym, sig_id);
-//                     signals.push(sig_id);
-
-//                     if let Some(expr_id) = default_val {
-//                         let _init_val = self.eval_const_expr(*expr_id, env)?;
-//                     }
-//                 }
-//                 Decl::Constant {
-//                     name, default_val, ..
-//                 } => {
-//                     if let Some(expr_id) = default_val {
-//                         let sym = self.get_symbol_unw(name);
-//                         let val = self.eval_const_expr(*expr_id, env)?;
-//                         env.insert_constant(sym, val);
-//                     }
-//                 }
-//                 Decl::Component {
-//                     name,
-//                     ports_start,
-//                     ports_end,
-//                 } => {
-//                     let sym = self.get_symbol_unw(name);
-//                     env.register_component_signature(sym, *ports_start, *ports_end)?;
-//                 }
-//                 Decl::Variable { name, .. } => {
-//                     return Err(ElaboratorError::NotYetImplemented {
-//                         feature: format!("Shared variable: {}", name),
-//                         span: Span { start: 0, end: 0 },
-//                     });
-//                 }
-//             }
-//         }
-//         Ok(signals)
-//     }
-
-//     fn elaborate_process(
-//         &mut self,
-//         label: &str,
-//         sensitivities: &[crate::ast::ExprId],
-//         stmts_range: std::ops::Range<u32>,
-//         env: &Environment,
-//     ) -> Result<ProcessId, ElaboratorError> {
-//         let proc_sym = self.get_symbol_unw(label);
-//         let mut sens_ids = Vec::new();
-//         for sens in sensitivities {
-//             sens_ids.push(self.resolve_expr_signal(*sens, env)?);
-//         }
-
-//         let mut proc_env = env.extend();
-//         let mut lowered_stmts = Vec::new();
-
-//         for stmt in self.ast.seq_statements(stmts_range) {
-//             self.lower_sequential_stmt(stmt, &mut proc_env, &mut lowered_stmts)?;
-//         }
-
-//         let proc_id = ProcessId(self.arena.processes.len() as u32);
-//         self.arena.processes.push(ElaboratedProcess {
-//             label: proc_sym,
-//             sensitivity_list: sens_ids,
-//             body_stmts: lowered_stmts,
-//         });
-
-//         Ok(proc_id)
-//     }
-
-//     fn lower_sequential_stmt(
-//         &mut self,
-//         stmt: &SequentialStmt<'a>,
-//         env: &mut Environment,
-//         out_stmts: &mut Vec<ElaboratedSequentialStmt>,
-//     ) -> Result<(), ElaboratorError> {
-//         match stmt {
-//             SequentialStmt::SequentialAssignment {
-//                 target,
-//                 expression,
-//                 after,
-//             } => {
-//                 let sig_id = self.resolve_expr_signal(*target, env)?;
-//                 let val_expr = self.lower_expr(*expression, env)?;
-//                 out_stmts.push(ElaboratedSequentialStmt::SignalAssignment {
-//                     target: sig_id,
-//                     value_expr: val_expr,
-//                 });
-//             }
-//             SequentialStmt::VariableAssignment { target, expression } => {
-//                 let sym = self.resolve_expr_symbol(*target)?;
-//                 let val_expr = self.lower_expr(*expression, env)?;
-//                 out_stmts.push(ElaboratedSequentialStmt::VariableAssignment {
-//                     target_symbol: sym,
-//                     value_expr: val_expr,
-//                 });
-//             }
-
-//             _ => {
-//                 unimplemented!()
-//             }
-//         }
-//         Ok(())
-//     }
-
-//     fn lower_conditional_assignment(
-//         &mut self,
-//         target_sig: SignalId,
-//         when_branches: &[(crate::ast::ExprId, crate::ast::ExprId)],
-//         else_branch: Option<crate::ast::ExprId>,
-//         env: &Environment,
-//     ) -> Result<ElaboratedProcess, ElaboratorError> {
-//         let proc_sym = self.get_symbol_unw("cond_assign_proc");
-//         let mut stmts = Vec::new();
-
-//         let mut current_else: Option<Vec<ElaboratedSequentialStmt>> =
-//             if let Some(else_expr_id) = else_branch {
-//                 let val_expr = self.lower_expr(else_expr_id, env)?;
-//                 Some(vec![ElaboratedSequentialStmt::SignalAssignment {
-//                     target: target_sig,
-//                     value_expr: val_expr,
-//                 }])
-//             } else {
-//                 None
-//             };
-
-//         for (val_ast, cond_ast) in when_branches.iter().rev() {
-//             let cond_expr = self.lower_expr(*cond_ast, env)?;
-//             let val_expr = self.lower_expr(*val_ast, env)?;
-
-//             let then_branch = vec![ElaboratedSequentialStmt::SignalAssignment {
-//                 target: target_sig,
-//                 value_expr: val_expr,
-//             }];
-
-//             current_else = Some(vec![ElaboratedSequentialStmt::If {
-//                 condition: cond_expr,
-//                 then_branch,
-//                 else_branch: current_else,
-//             }]);
-//         }
-
-//         if let Some(lowered_if) = current_else {
-//             stmts = lowered_if;
-//         }
-
-//         Ok(ElaboratedProcess {
-//             label: proc_sym,
-//             sensitivity_list: Vec::new(),
-//             body_stmts: stmts,
-//         })
-//     }
-
-//     fn elaborate_component_instantiation(
-//         &mut self,
-//         label_span: Option<Span>,
-//         comp_name_span: Span,
-//         arch_span: Option<Span>,
-//         generic_map_range: Range<u32>,
-//         port_map_range: Range<u32>,
-//         path: &str,
-//         parent_env: &mut Environment,
-//     ) -> Result<InstanceId, ElaboratorError> {
-//         let raw_component_name = self.sa.get_text(&comp_name_span);
-
-//         let component_name = raw_component_name
-//             .rsplit('.')
-//             .next()
-//             .unwrap_or(raw_component_name);
-
-//         let arch_qualifier = arch_span.map(|s| &self.sa.source[s.start..s.end]);
-//         let label = match label_span {
-//             Some(s) => &self.sa.source[s.start..s.end],
-//             None => "inst",
-//         };
-
-//         let child_entity = self
-//             .ast
-//             .entities
-//             .iter()
-//             .find(|e| e.name.eq_ignore_ascii_case(component_name))
-//             .ok_or_else(|| ElaboratorError::EntityNotFound(raw_component_name.to_string()))?;
-
-//         let child_arch = self
-//             .ast
-//             .architectures
-//             .iter()
-//             .find(|a| {
-//                 let entity_text = &self.sa.source[a.entity_name.start..a.entity_name.end];
-//                 let entity_matches = entity_text.eq_ignore_ascii_case(component_name);
-//                 match arch_qualifier {
-//                     Some(arch) => entity_matches && a.name.eq_ignore_ascii_case(arch),
-//                     None => entity_matches,
-//                 }
-//             })
-//             .ok_or_else(|| ElaboratorError::ArchitectureNotFound(component_name.to_string()))?;
-
-//         let mut evaluated_overrides = HashMap::new();
-//         if !generic_map_range.is_empty() {
-//             let generic_associations = &self.ast.associations
-//                 [generic_map_range.start as usize..generic_map_range.end as usize];
-
-//             for assoc in generic_associations {
-//                 let formal_sym = match assoc.formal {
-//                     Some(formal_id) => self.resolve_expr_symbol(formal_id)?,
-//                     None => {
-//                         return Err(ElaboratorError::NotYetImplemented {
-//                             feature: "Positional generic mapping".to_string(),
-//                             span: comp_name_span,
-//                         });
-//                     }
-//                 };
-
-//                 let actual_val = self.eval_const_expr(assoc.actual, parent_env)?;
-//                 evaluated_overrides.insert(formal_sym, actual_val);
-//             }
-//         }
-
-//         let child_path = format!("{}/{}", path, label);
-//         let inst_sym = self.get_symbol_unw(label);
-
-//         let child_id = self.elaborate_instance(
-//             inst_sym,
-//             child_entity,
-//             child_arch,
-//             &evaluated_overrides,
-//             &child_path,
-//             parent_env,
-//         )?;
-
-//         let target_ports =
-//             &self.ast.ports[child_entity.ports_start.0 as usize..child_entity.ports_end.0 as usize];
-
-//         let port_associations =
-//             &self.ast.associations[port_map_range.start as usize..port_map_range.end as usize];
-
-//         for (idx, assoc) in port_associations.iter().enumerate() {
-//             // Resolve formal port using named identifier or positional index
-//             let formal_port = match assoc.formal {
-//                 Some(formal_expr_id) => {
-//                     if let Expr::Identifier { name, .. } =
-//                         &self.ast.exprs[formal_expr_id.0 as usize]
-//                     {
-//                         target_ports
-//                             .iter()
-//                             .find(|p| p.name.eq_ignore_ascii_case(name))
-//                     } else {
-//                         None
-//                     }
-//                 }
-//                 None => target_ports.get(idx),
-//             }
-//             .ok_or_else(|| ElaboratorError::BindingError {
-//                 reason: format!(
-//                     "No matching target port found for association index {}",
-//                     idx
-//                 ),
-//                 span: comp_name_span,
-//             })?;
-
-//             let formal_sym = self.get_symbol_unw(formal_port.name);
-//             let actual_sig = self.resolve_expr_signal(assoc.actual, parent_env)?;
-
-//             // Attach resolved physical signal to child instance node
-//             let child_node = &mut self.arena.instances[child_id.0 as usize];
-//             child_node.port_bindings.push(PortBinding {
-//                 port_name: formal_sym,
-//                 actual_signal: actual_sig,
-//             });
-//         }
-
-//         Ok(child_id)
-//     }
-
-//     pub fn eval_const_expr(
-//         &self,
-//         expr_id: crate::ast::ExprId,
-//         env: &Environment,
-//     ) -> Result<EvaluatedValue, ElaboratorError> {
-//         let expr = &self.ast.exprs[expr_id.0 as usize];
-//         match expr {
-//             Expr::Literal { text, span } => {
-//                 if *text == "true" || *text == "false" {
-//                     Ok(EvaluatedValue::Boolean(*text == "true"))
-//                 } else if text.starts_with('\'') && text.ends_with('\'') {
-//                     let sym = self
-//                         .sa
-//                         .symbols
-//                         .interner
-//                         .get_symbol(text)
-//                         .ok_or_else(|| ElaboratorError::SymbolNotFound(text.to_string()))?;
-//                     Ok(EvaluatedValue::EnumLiteral(sym))
-//                 } else if let Ok(val) = text.parse::<i64>() {
-//                     Ok(EvaluatedValue::Integer(val))
-//                 } else {
-//                     Err(ElaboratorError::EvaluationFailed {
-//                         reason: format!("Unsupported or invalid literal '{}'", text),
-//                         span: *span,
-//                     })
-//                 }
-//             }
-//             Expr::Identifier { name, .. } => {
-//                 let sym = self.get_symbol_unw(name);
-//                 if let Some(val) = env.lookup_constant(sym) {
-//                     Ok(val.clone())
-//                 } else {
-//                     Err(ElaboratorError::EvaluationFailed {
-//                         reason: format!("Constant identifier '{}' not found in environment", name),
-//                         span: expr.span(),
-//                     })
-//                 }
-//             }
-//             Expr::Binary { op, lhs, rhs, .. } => {
-//                 let left_val = self.eval_const_expr(*lhs, env)?;
-//                 let right_val = self.eval_const_expr(*rhs, env)?;
-//                 match (left_val, right_val, op) {
-//                     (EvaluatedValue::Integer(l), EvaluatedValue::Integer(r), BinaryOp::Add) => {
-//                         Ok(EvaluatedValue::Integer(l + r))
-//                     }
-//                     (EvaluatedValue::Integer(l), EvaluatedValue::Integer(r), BinaryOp::Sub) => {
-//                         Ok(EvaluatedValue::Integer(l - r))
-//                     }
-//                     (EvaluatedValue::Integer(l), EvaluatedValue::Integer(r), BinaryOp::Mul) => {
-//                         Ok(EvaluatedValue::Integer(l * r))
-//                     }
-//                     (EvaluatedValue::Integer(l), EvaluatedValue::Integer(r), BinaryOp::Div) => {
-//                         if r == 0 {
-//                             return Err(ElaboratorError::EvaluationFailed {
-//                                 reason: "Division by zero".to_string(),
-//                                 span: expr.span(),
-//                             });
-//                         }
-//                         Ok(EvaluatedValue::Integer(l / r))
-//                     }
-//                     (EvaluatedValue::Integer(l), EvaluatedValue::Integer(r), BinaryOp::Eq) => {
-//                         Ok(EvaluatedValue::Boolean(l == r))
-//                     }
-//                     _ => Err(ElaboratorError::EvaluationFailed {
-//                         reason: "Unsupported constant binary operation".to_string(),
-//                         span: expr.span(),
-//                     }),
-//                 }
-//             }
-//             Expr::Unary {
-//                 op,
-//                 expr: inner_expr,
-//                 ..
-//             } => {
-//                 let val = self.eval_const_expr(*inner_expr, env)?;
-//                 match (val, op) {
-//                     (EvaluatedValue::Integer(v), UnaryOp::Neg) => Ok(EvaluatedValue::Integer(-v)),
-//                     (EvaluatedValue::Boolean(v), UnaryOp::Not) => Ok(EvaluatedValue::Boolean(!v)),
-//                     _ => Err(ElaboratorError::EvaluationFailed {
-//                         reason: "Unsupported constant unary operation".to_string(),
-//                         span: expr.span(),
-//                     }),
-//                 }
-//             }
-//             Expr::Grouping { expr: inner, .. } => self.eval_const_expr(*inner, env),
-//             Expr::CallOrIndex { callee, args, .. } => {
-//                 let callee_sym = self.resolve_expr_symbol(*callee)?;
-//                 let callee_name = self.sa.symbols.interner.get(callee_sym);
-
-//                 let arg_slice = &self.ast.expr_lists[args.start as usize..args.end as usize];
-//                 let eval_args: Result<Vec<EvaluatedValue>, ElaboratorError> = arg_slice
-//                     .iter()
-//                     .map(|&arg_id| self.eval_const_expr(arg_id, env))
-//                     .collect();
-//                 let eval_args = eval_args?;
-
-//                 match callee_name {
-//                     "to_unsigned" | "to_signed" => {
-//                         if eval_args.len() != 2 {
-//                             return Err(ElaboratorError::EvaluationFailed {
-//                                 reason: format!(
-//                                     "'{}' requires 2 arguments (value, size)",
-//                                     callee_name
-//                                 ),
-//                                 span: expr.span(),
-//                             });
-//                         }
-//                         match (&eval_args[0], &eval_args[1]) {
-//                             (EvaluatedValue::Integer(val), EvaluatedValue::Integer(size)) => {
-//                                 let size = *size as usize;
-//                                 let bits = (0..size)
-//                                     .rev()
-//                                     .map(|i| EvaluatedValue::Integer((val >> i) & 1))
-//                                     .collect();
-//                                 Ok(EvaluatedValue::Vector(bits))
-//                             }
-//                             _ => Err(ElaboratorError::EvaluationFailed {
-//                                 reason: format!("'{}' requires integer arguments", callee_name),
-//                                 span: expr.span(),
-//                             }),
-//                         }
-//                     }
-//                     "to_integer" => {
-//                         if eval_args.len() != 1 {
-//                             return Err(ElaboratorError::EvaluationFailed {
-//                                 reason: "'to_integer' requires exactly 1 argument".into(),
-//                                 span: expr.span(),
-//                             });
-//                         }
-//                         match &eval_args[0] {
-//                             EvaluatedValue::Vector(bits) => {
-//                                 let mut num = 0i64;
-//                                 for bit in bits {
-//                                     if let EvaluatedValue::Integer(b) = bit {
-//                                         num = (num << 1) | (*b & 1);
-//                                     }
-//                                 }
-//                                 Ok(EvaluatedValue::Integer(num))
-//                             }
-//                             EvaluatedValue::Integer(v) => Ok(EvaluatedValue::Integer(*v)),
-//                             _ => Err(ElaboratorError::EvaluationFailed {
-//                                 reason: "'to_integer' expects vector or integer argument".into(),
-//                                 span: expr.span(),
-//                             }),
-//                         }
-//                     }
-//                     other => Err(ElaboratorError::EvaluationFailed {
-//                         reason: format!("Unsupported compile-time function call '{}'", other),
-//                         span: expr.span(),
-//                     }),
-//                 }
-//             }
-//             Expr::PhysicalLiteral { value, unit, span } => {
-//                 let quantity = match self.eval_const_expr(*value, env)? {
-//                     EvaluatedValue::Integer(val) => val,
-//                     _ => {
-//                         return Err(ElaboratorError::EvaluationFailed {
-//                             reason: "Physical literal multiplier must evaluate to an integer"
-//                                 .to_string(),
-//                             span: *span,
-//                         });
-//                     }
-//                 };
-
-//                 let scale_factor: i64 = match unit.to_lowercase().as_str() {
-//                     "fs" => 1,
-//                     "ps" => 1_000,
-//                     "ns" => 1_000_000,
-//                     "us" => 1_000_000_000,
-//                     "ms" => 1_000_000_000_000,
-//                     "sec" | "s" => 1_000_000_000_000_000,
-//                     "min" => 60 * 1_000_000_000_000_000,
-//                     "hr" => 3600 * 1_000_000_000_000_000,
-//                     _ => {
-//                         return Err(ElaboratorError::EvaluationFailed {
-//                             reason: format!("Unknown physical unit '{}'", unit),
-//                             span: *span,
-//                         });
-//                     }
-//                 };
-
-//                 let total_fs = quantity.checked_mul(scale_factor).ok_or_else(|| {
-//                     ElaboratorError::EvaluationFailed {
-//                         reason: format!(
-//                             "Overflow while evaluating physical literal '{} {}'",
-//                             quantity, unit
-//                         ),
-//                         span: *span,
-//                     }
-//                 })?;
-
-//                 Ok(EvaluatedValue::Integer(total_fs))
-//             }
-//             a => Err(ElaboratorError::EvaluationFailed {
-//                 reason: format!(
-//                     "Non-static expression encountered during evaluation: {}\n Debug: {:?}",
-//                     self.sa.get_text(&expr.span()),
-//                     a
-//                 ),
-//                 span: expr.span(),
-//             }),
-//         }
-//     }
-
-//     // lowers an expression into the elaborator expression variant
-//     fn lower_expr(
-//         &mut self,
-//         expr_id: crate::ast::ExprId,
-//         env: &Environment,
-//     ) -> Result<ExprId, ElaboratorError> {
-//         let expr = &self.ast.exprs[expr_id.0 as usize];
-//         let lowered =
-//             match expr {
-//                 Expr::Literal { text, .. } => {
-//                     let val =
-//                         if let Ok(i) = text.parse::<i64>() {
-//                             EvaluatedValue::Integer(i)
-//                         } else if *text == "true" || *text == "false" {
-//                             EvaluatedValue::Boolean(*text == "true")
-//                         } else if text.starts_with('\'') && text.ends_with('\'') {
-//                             let sym =
-//                                 self.sa.symbols.interner.get_symbol(text).ok_or_else(|| {
-//                                     ElaboratorError::SymbolNotFound(text.to_string())
-//                                 })?;
-//                             EvaluatedValue::EnumLiteral(sym)
-//                         } else {
-//                             // Fallback for enumerated identifier literals (e.g., state names like IDLE)
-//                             let sym =
-//                                 self.sa.symbols.interner.get_symbol(text).ok_or_else(|| {
-//                                     ElaboratorError::SymbolNotFound(text.to_string())
-//                                 })?;
-//                             EvaluatedValue::EnumLiteral(sym)
-//                         };
-//                     EvaluatedExpr::Literal(val)
-//                 }
-//                 Expr::Identifier { name, .. } => {
-//                     let sym = self.get_symbol_unw(name);
-//                     if let Some(sig_id) = env.lookup_signal(sym) {
-//                         EvaluatedExpr::SignalRead(sig_id)
-//                     } else if let Some(val) = env.lookup_constant(sym) {
-//                         EvaluatedExpr::Literal(val.clone())
-//                     } else {
-//                         return Err(ElaboratorError::SignalNotFound(name.to_string()));
-//                     }
-//                 }
-//                 Expr::Binary { op, lhs, rhs, .. } => {
-//                     let l_id = self.lower_expr(*lhs, env)?;
-//                     let r_id = self.lower_expr(*rhs, env)?;
-//                     EvaluatedExpr::BinaryOp {
-//                         lhs: l_id,
-//                         op: *op,
-//                         rhs: r_id,
-//                     }
-//                 }
-//                 Expr::Unary { op, expr, .. } => {
-//                     let inner_id = self.lower_expr(*expr, env)?;
-//                     EvaluatedExpr::UnaryOp {
-//                         op: *op,
-//                         expr: inner_id,
-//                     }
-//                 }
-//                 Expr::Grouping { expr, .. } => {
-//                     return self.lower_expr(*expr, env);
-//                 }
-//                 a => {
-//                     return Err(ElaboratorError::NotYetImplemented {
-//                         feature: format!("Complex expression lowering, {:?}", a),
-//                         span: expr.span(),
-//                     });
-//                 }
-//             };
-
-//         Ok(self.arena.alloc_expr(lowered))
-//     }
-
-//     /// Given the expr_id and environment, it returns the signal
-//     fn resolve_expr_signal(
-//         &self,
-//         expr_id: crate::ast::ExprId,
-//         env: &Environment,
-//     ) -> Result<SignalId, ElaboratorError> {
-//         let sym = self.resolve_expr_symbol(expr_id)?;
-//         env.lookup_signal(sym).ok_or_else(|| {
-//             dbg!("HERE");
-//             ElaboratorError::SignalNotFound(self.sa.symbols.interner.get(sym).to_string())
-//         })
-//     }
-
-//     /// Returns the symbol of the identifier corresponding to expr_id
-//     fn resolve_expr_symbol(
-//         &self,
-//         expr_id: crate::ast::ExprId,
-//     ) -> Result<SymbolId, ElaboratorError> {
-//         let expr = &self.ast.exprs[expr_id.0 as usize];
-//         match expr {
-//             Expr::Identifier { name, .. } => Ok(self.get_symbol_unw(name)),
-//             _ => Err(ElaboratorError::EvaluationFailed {
-//                 reason: "Expected identifier expression".into(),
-//                 span: expr.span(),
-//             }),
-//         }
-//     }
-
-//     /// Processes top-level AST context items (`library ...; use ...;`)
-//     pub fn elaborate_context_items(
-//         &mut self,
-//         env: &mut Environment,
-//         registry: &LibraryRegistry,
-//     ) -> Result<(), ElaboratorError> {
-//         for item in &self.ast.contexts {
-//             match item {
-//                 ContextItem::Library { name } => {
-//                     // Ensures the referenced library symbol is known in the interner
-//                     let lib_sym = self.get_symbol(name).ok_or_else(|| {
-//                         ElaboratorError::EvaluationFailed {
-//                             reason: format!("Unknown library '{}'", name),
-//                             span: Span { start: 0, end: 0 }, // TODO correct span
-//                         }
-//                     })?;
-
-//                     // Special-case handling for standard libraries or work aliases
-//                     if name.eq_ignore_ascii_case("std") || name.eq_ignore_ascii_case("ieee") {
-//                         // Core types (std_logic, integer, etc.) are pre-loaded in SemanticAnalyzer
-//                         continue;
-//                     }
-
-//                     if !registry.libraries.contains_key(&name.to_lowercase())
-//                         && !name.eq_ignore_ascii_case("work")
-//                     {
-//                         return Err(ElaboratorError::EvaluationFailed {
-//                             reason: format!("Library '{}' was referenced but not loaded", name),
-//                             span: Span { start: 0, end: 0 }, // TODO correct span
-//                         });
-//                     }
-//                 }
-//                 ContextItem::Use { path } => {
-//                     self.elaborate_use_clause(path, env, registry)?;
-//                 }
-//             }
-//         }
-//         Ok(())
-//     }
-
-//     fn elaborate_use_clause(
-//         &mut self,
-//         path: &str,
-//         env: &mut Environment,
-//         registry: &LibraryRegistry,
-//     ) -> Result<(), ElaboratorError> {
-//         let parts: Vec<&str> = path.split('.').collect();
-//         if parts.len() < 2 {
-//             return Err(ElaboratorError::EvaluationFailed {
-//                 reason: format!("Malformed use clause path: '{}'", path),
-//                 span: Span { start: 0, end: 0 },
-//             });
-//         }
-
-//         // Normalize case (VHDL is case-insensitive)
-//         let lib_name = parts[0].to_lowercase();
-//         let pkg_name = parts[1].to_lowercase();
-//         let selector = parts.get(2).copied().unwrap_or("all");
-
-//         if lib_name == "ieee" || lib_name == "std" {
-//             return Ok(());
-//         }
-
-//         // Direct string lookup on registry (assuming LibraryRegistry uses HashMap<String, Library>)
-//         let pkg_exports = registry.get_package(&lib_name, &pkg_name).ok_or_else(|| {
-//             ElaboratorError::EvaluationFailed {
-//                 reason: format!("Package '{}.{}' not found in registry", lib_name, pkg_name),
-//                 span: Span { start: 0, end: 0 },
-//             }
-//         })?;
-
-//         if selector.eq_ignore_ascii_case("all") {
-//             env.import_package(pkg_exports);
-//         } else {
-//             let item_sym = self
-//                 .sa
-//                 .symbols
-//                 .interner
-//                 .get_symbol(&selector.to_lowercase())
-//                 .ok_or_else(|| ElaboratorError::EvaluationFailed {
-//                     reason: format!("Item '{}' not found in symbol interner", selector),
-//                     span: Span { start: 0, end: 0 },
-//                 })?;
-
-//             if !env.import_package_item(pkg_exports, item_sym) {
-//                 return Err(ElaboratorError::EvaluationFailed {
-//                     reason: format!(
-//                         "Symbol '{}' does not exist in '{}.{}'",
-//                         selector, lib_name, pkg_name
-//                     ),
-//                     span: Span { start: 0, end: 0 },
-//                 });
-//             }
-//         }
-
-//         Ok(())
-//     }
-
-//     fn get_symbol_unw(&self, name: &str) -> SymbolId {
-//         self.sa.symbols.interner.get_symbol(name).expect(&format!(
-//             "If semantic analysis passed, this shouldn't panic. Panicked on {}",
-//             name
-//         ))
-//     }
-//     fn get_symbol(&self, name: &str) -> Option<SymbolId> {
-//         self.sa.symbols.interner.get_symbol(name)
-//     }
-
-//     pub fn get_type_bounds(&self, type_id: TypeId) -> (i64, i64) {
-//         if type_id == self.sa.type_std_logic
-//             || type_id == self.sa.type_boolean
-//             || type_id == self.sa.type_real
-//         {
-//             return (0, 0);
-//         }
-
-//         if type_id == self.sa.type_integer {
-//             return (i32::MAX as i64, i32::MIN as i64);
-//         }
-
-//         match self.sa.types.get(type_id) {
-//             Some(TypeKind::Array { .. }) => (7, 0), // TODO
-//             _ => (0, 0),
-//         }
-//     }
-
-//     fn resolve_type_by_name(&self, name: &str) -> Result<TypeId, ElaboratorError> {
-//         let clean = name.to_lowercase();
-//         if let Some(sym) = self.sa.symbols.interner.get_symbol(&clean) {
-//             if let Some(decl_ref) = self.sa.symbols.lookup(self.sa.current_scope, sym) {
-//                 return Ok(self.sa.get_decl_type(decl_ref));
-//             }
-//         }
-//         match clean.as_str() {
-//             "std_logic" => Ok(self.sa.type_std_logic),
-//             "std_logic_vector" => Ok(self.sa.type_std_logic_vector),
-//             "integer" => Ok(self.sa.type_integer),
-//             "boolean" => Ok(self.sa.type_boolean),
-//             "real" => Ok(self.sa.type_real),
-//             _ => Err(ElaboratorError::EvaluationFailed {
-//                 reason: format!("Unknown type identifier '{}'", name),
-//                 span: Span { start: 0, end: 0 },
-//             }),
-//         }
-//     }
-// }
+use std::collections::HashMap;
+use std::ops::Range;
+
+use crate::analyzer::{DeclRef, ScopeId, TypeId, TypeKind};
+use crate::ast::{
+    Architecture, AstArena, BinaryOp, ConcurrentStmt, ContextItem, Decl, DeclId, Entity, Expr,
+    GetSpan, GetThing, Port, SequentialStmt, UnaryOp,
+};
+use crate::elaborator::{ElaboratedDesign, ElaboratedSequentialStmt, LibraryRegistry, PortBinding};
+use crate::parser::Span;
+use crate::printer::FormatCtx;
+use crate::workspace::FileId;
+use crate::{
+    analyzer::{SemanticAnalyzer, SymbolId},
+    elaborator::{
+        ElaboratedArena, ElaboratedConcurrentAssignment, ElaboratedPort, ElaboratedSignal,
+        Elaborator, ElaboratorError, Environment, EvaluatedExpr, EvaluatedValue, ExprId,
+        InstanceId, InstanceNode, SignalId,
+    },
+};
+
+impl<'a> Elaborator<'a> {
+    pub fn new(sa: &'a SemanticAnalyzer<'a>) -> Self {
+        Self {
+            sa,
+            arena: ElaboratedArena::default(),
+            instance_counter: 0,
+            file_id: FileId(0),
+        }
+    }
+
+    /// Elaborates all entity and architecture combinations present in the AST file.
+    pub fn elaborate_all(
+        &mut self,
+        registry: &LibraryRegistry,
+        top_entity_name: &str,
+    ) -> Result<ElaboratedDesign, ElaboratorError> {
+        let mut root_instances = Vec::new();
+        let mut root_instance = InstanceId(0);
+        let top_entity_sym = self
+            .sa
+            .symbols
+            .interner
+            .get_symbol(top_entity_name)
+            .ok_or_else(|| ElaboratorError::EntityNotFound(top_entity_name.to_string()))?;
+        let top_entity_decl = self
+            .sa
+            .symbols
+            .lookup_local(ScopeId(0), top_entity_sym)
+            .ok_or_else(|| ElaboratorError::EntityNotFound(top_entity_name.to_string()))?;
+        let (top_entity_id, top_e_file_id, scope_id) = match top_entity_decl {
+            DeclRef::Entity {
+                file_id,
+                entity_id,
+                scope_id,
+            } => (*entity_id, *file_id, *scope_id),
+            _ => return Err(ElaboratorError::NotAnEntity),
+        };
+        // let entity = self.get_thing(top_entity_id, file_id);
+
+        let entity = self.get_ast(top_e_file_id).get_thing(top_entity_id);
+        let matching_archs = self
+            .sa
+            .entity_architectures
+            .get(&(top_entity_id, top_e_file_id))
+            .ok_or_else(|| ElaboratorError::NoMatchingArchitectures)?;
+        let mut env = Environment::new();
+        self.elaborate_context_items(&mut env, registry, entity)?;
+        let entity_name = entity.name;
+
+        for arch_decl in matching_archs {
+            let DeclRef::Architecture {
+                file_id,
+                ast_id,
+                entity_tuple: entity_id,
+                scope_id,
+            } = arch_decl
+            else {
+                panic!();
+            };
+            let arch = &self.get_ast(*file_id).architectures[ast_id.0 as usize];
+
+            // Distinguish instance hierarchical paths when an entity has multiple architectures
+            let root_path = format!("{}_{}", top_entity_name, self.get_str(arch.name));
+
+            let inst_id = self.elaborate_instance(
+                top_entity_sym,
+                top_entity_decl,
+                arch_decl,
+                &HashMap::new(),
+                &root_path,
+                &mut env,
+            )?;
+            root_instances.push(inst_id);
+            if entity_name == top_entity_sym {
+                root_instance = inst_id;
+            }
+        }
+
+        Ok(ElaboratedDesign {
+            instances: root_instances,
+            root_instance,
+        })
+    }
+
+    fn elaborate_instance(
+        &mut self,
+        instance_name: SymbolId,
+        entity_decl: &DeclRef,
+        arch_decl: &DeclRef,
+        generic_overrides: &HashMap<SymbolId, EvaluatedValue>,
+        path: &str,
+        parent_env: &mut Environment,
+    ) -> Result<InstanceId, ElaboratorError> {
+        let mut local_env = Environment::new();
+        // let entity = self.fetch_from_decl(entity_decl);
+
+        let evaluated_generics =
+            self.elaborate_generics(entity_decl, generic_overrides, &mut local_env)?;
+
+        let ports = self.elaborate_ports(entity_decl, parent_env, &mut local_env)?;
+        let local_signals = self.elaborate_declarations(arch_decl, &mut local_env)?;
+
+        let (arch, arch_file_id): (&Architecture, FileId) = self.fetch_from_decl(arch_decl);
+        let (entity, entity_file_id): (&Entity, FileId) = self.fetch_from_decl(entity_decl);
+        let stmts_range = arch.stmts.clone();
+        let architecture_name = arch.name;
+        let entity_name = entity.name;
+
+        // Concurrent Statements
+        let mut processes = Vec::new();
+        let mut concurrent_assignments = Vec::new();
+        let mut children = Vec::new();
+
+        self.file_id = arch_file_id;
+        for stmt in self.sa.get_ast(arch_file_id).conc_statements(stmts_range) {
+            match stmt {
+                ConcurrentStmt::ConcurrentAssignment {
+                    target,
+                    expression,
+                    after,
+                    ..
+                } => {
+                    let target_sig = self.resolve_expr_signal(*target, &local_env)?;
+                    self.arena.signals[target_sig.0 as usize].driver_count += 1; // TODO check
+                    let expr_id = self.lower_expr(*expression, &local_env)?;
+                    let delay_expr = after
+                        .map(|delay_ast_id| self.lower_expr(delay_ast_id, &local_env))
+                        .transpose()?;
+                    concurrent_assignments.push(ElaboratedConcurrentAssignment {
+                        target_signal: target_sig,
+                        value_expr: expr_id,
+                        delay_expr,
+                    });
+                }
+                // ConcurrentStmt::ConditionalAssignment { .. } => {
+                //     todo!()
+                // }
+                ConcurrentStmt::Process {
+                    stmts,
+                    label,
+                    sens_list,
+                } => {
+                    let process_name_str = match label {
+                        Some(lbl) => self.get_str(*lbl).to_string(),
+                        None => {
+                            format!("_unlabeled_process_{}_{}", arch_file_id, stmts.start)
+                        }
+                    };
+                    // let proc_id = self.elaborate_process(
+                    //     label.unwrap_or("anon_process"),
+                    //     process_vars,
+                    //     *stmts,
+                    //     &local_env,
+                    // )?;
+                    // processes.push(proc_id);
+                }
+                ConcurrentStmt::ComponentInstantiation {
+                    label,
+                    component_name,
+                    arch_qualifier,
+                    generic_map,
+                    port_map,
+                } => {
+                    let child_id = self.elaborate_component_instantiation(
+                        *label,
+                        *component_name,
+                        *arch_qualifier,
+                        generic_map.clone(),
+                        port_map.clone(),
+                        path,
+                        &mut local_env,
+                        entity_decl,
+                        arch_decl,
+                    )?;
+                    children.push(child_id);
+                }
+            }
+        }
+
+        let node = InstanceNode {
+            instance_name,
+            entity_name,
+            architecture_name,
+            hierarchical_path: path.to_string(),
+            generics: evaluated_generics,
+            ports,
+            port_bindings: Vec::new(),
+            local_signals,
+            local_constants: local_env.constants.clone(),
+            concurrent_assignments,
+            processes,
+            children,
+        };
+
+        let inst_id = InstanceId(self.arena.instances.len() as u32);
+        self.arena.instances.push(node);
+        Ok(inst_id)
+    }
+
+    fn elaborate_generics(
+        &mut self,
+        decl_entity: &DeclRef,
+        overrides: &HashMap<SymbolId, EvaluatedValue>,
+        env: &mut Environment,
+    ) -> Result<HashMap<SymbolId, EvaluatedValue>, ElaboratorError> {
+        let mut resolved = HashMap::new();
+        let (entity, file_id): (&Entity, _) = self.fetch_from_decl(decl_entity);
+
+        let ast = self.get_ast(file_id);
+        let decl_slice =
+            &ast.decls[entity.generics_start.0 as usize..entity.generics_end.0 as usize];
+
+        for (i, decl) in decl_slice.iter().enumerate() {
+            if let Decl::Constant {
+                //TODO check if it's correct
+                name,
+                default_val,
+                ..
+            } = decl
+            {
+                let sym = *name;
+                let val = if let Some(val_override) = overrides.get(&sym) {
+                    val_override.clone()
+                } else if let Some(expr_id) = default_val {
+                    self.eval_const_expr(*expr_id, env)?
+                } else {
+                    return Err(ElaboratorError::EvaluationFailed {
+                        reason: format!(
+                            "Generic parameter '{}' missing default value",
+                            self.get_str(sym)
+                        ),
+                        span: ast.span(DeclId(i as u32 + entity.generics_start.0)),
+                    });
+                };
+                env.insert_constant(sym, val.clone());
+                resolved.insert(sym, val);
+            }
+        }
+        Ok(resolved)
+    }
+    fn get_str(&self, sym: SymbolId) -> &str {
+        self.sa.symbols.interner.get(sym)
+    }
+
+    fn resolve_port_type(&self, port: &Port) -> Result<TypeId, ElaboratorError> {
+        self.sa
+            .expr_types
+            .get(port.port_type.0 as usize)
+            .copied()
+            .ok_or_else(|| ElaboratorError::EvaluationFailed {
+                reason: format!(
+                    "Failed to resolve type for port '{}'",
+                    self.get_str(port.name)
+                ),
+                span: self.sa.ast.span(port.port_type),
+            })
+    }
+
+    fn elaborate_ports(
+        &mut self,
+        entity_decl: &DeclRef,
+        parent_env: &Environment,
+        local_env: &mut Environment,
+    ) -> Result<Vec<ElaboratedPort>, ElaboratorError> {
+        let mut ports = Vec::new();
+        let (entity, file_id): (&Entity, FileId) = self.fetch_from_decl(entity_decl);
+
+        let ast = self.sa.get_ast(file_id);
+        let port_slice = &ast.ports[entity.ports_start.0 as usize..entity.ports_end.0 as usize];
+
+        for port in port_slice {
+            let type_id = self.resolve_port_type(port)?;
+            let sym = port.name;
+            match local_env.signals.get(&sym) {
+                Some(&existing_sig_id) => {
+                    dbg!(existing_sig_id);
+                }
+                None => {
+                    let new_sig_id = self.arena.alloc_signal(ElaboratedSignal {
+                        name: sym,
+                        type_id,
+                        high_bound: 0,
+                        low_bound: 0,
+                        driver_count: 0,
+                    });
+                    local_env.insert_signal(sym, new_sig_id);
+                }
+            };
+            ports.push(ElaboratedPort {
+                name: sym,
+                mode: port.mode,
+                type_id,
+                high_bound: 0, //TODO
+                low_bound: 0,
+            });
+        }
+        Ok(ports)
+    }
+
+    fn elaborate_declarations(
+        &mut self,
+        arch: &DeclRef,
+        env: &mut Environment,
+    ) -> Result<Vec<SignalId>, ElaboratorError> {
+        let mut signals = Vec::new();
+        let (arch, file_id): (&Architecture, FileId) = self.fetch_from_decl(arch);
+        let start = arch.decls_start.0;
+        let ast = self.sa.get_ast(file_id);
+        let decl_slice = ast.declarations(arch);
+
+        for (i, decl) in decl_slice.iter().enumerate() {
+            match decl {
+                Decl::Signal {
+                    name,
+                    decl_type,
+                    default_val,
+                } => {
+                    let sym = *name;
+                    let type_id = self.resolve_type_by_sym(*decl_type)?;
+                    let (high_bound, low_bound) = self.get_type_bounds(type_id);
+                    let sig_id = self.arena.alloc_signal(ElaboratedSignal {
+                        name: sym,
+                        type_id,
+                        high_bound,
+                        low_bound,
+                        driver_count: 0,
+                    });
+                    env.insert_signal(sym, sig_id);
+                    signals.push(sig_id);
+                    if let Some(expr_id) = default_val {
+                        let _init_val = self.eval_const_expr(*expr_id, env)?;
+                    }
+                }
+                Decl::Constant {
+                    name, default_val, ..
+                } => {
+                    if let Some(expr_id) = default_val {
+                        let val = self.eval_const_expr(*expr_id, env)?;
+                        env.insert_constant(*name, val);
+                    }
+                }
+                Decl::Component {
+                    name,
+                    ports_start,
+                    ports_end,
+                } => {
+                    env.register_component_signature(*name, *ports_start, *ports_end)?;
+                }
+                Decl::Variable { name, .. } => {
+                    return Err(ElaboratorError::NotYetImplemented {
+                        feature: format!("Shared variable: {}", self.get_str(*name)),
+                        span: ast.span(DeclId(i as u32 + start)),
+                    });
+                }
+            }
+        }
+        Ok(signals)
+    }
+
+    // fn elaborate_process(
+    //     &mut self,
+    //     label: &str,
+    //     sensitivities: &[crate::ast::ExprId],
+    //     stmts_range: std::ops::Range<u32>,
+    //     env: &Environment,
+    // ) -> Result<ProcessId, ElaboratorError> {
+    //     let proc_sym = self.get_symbol_unw(label);
+    //     let mut sens_ids = Vec::new();
+    //     for sens in sensitivities {
+    //         sens_ids.push(self.resolve_expr_signal(*sens, env)?);
+    //     }
+
+    //     let mut proc_env = env.extend();
+    //     let mut lowered_stmts = Vec::new();
+
+    //     for stmt in self.get_ast(file_id).seq_statements(stmts_range) {
+    //         self.lower_sequential_stmt(stmt, &mut proc_env, &mut lowered_stmts)?;
+    //     }
+
+    //     let proc_id = ProcessId(self.arena.processes.len() as u32);
+    //     self.arena.processes.push(ElaboratedProcess {
+    //         label: proc_sym,
+    //         sensitivity_list: sens_ids,
+    //         body_stmts: lowered_stmts,
+    //     });
+
+    //     Ok(proc_id)
+    // }
+
+    fn lower_sequential_stmt(
+        &mut self,
+        stmt: &SequentialStmt,
+        env: &mut Environment,
+        out_stmts: &mut Vec<ElaboratedSequentialStmt>,
+    ) -> Result<(), ElaboratorError> {
+        match stmt {
+            SequentialStmt::SequentialAssignment {
+                target,
+                expression,
+                after,
+            } => {
+                let sig_id = self.resolve_expr_signal(*target, env)?;
+                let val_expr = self.lower_expr(*expression, env)?;
+                out_stmts.push(ElaboratedSequentialStmt::SignalAssignment {
+                    target: sig_id,
+                    value_expr: val_expr,
+                });
+            }
+            SequentialStmt::VariableAssignment { target, expression } => {
+                let sym = self.resolve_expr_symbol(*target)?;
+                let val_expr = self.lower_expr(*expression, env)?;
+                out_stmts.push(ElaboratedSequentialStmt::VariableAssignment {
+                    target_symbol: sym,
+                    value_expr: val_expr,
+                });
+            }
+
+            _ => {
+                unimplemented!()
+            }
+        }
+        Ok(())
+    }
+
+    // fn lower_conditional_assignment(
+    //     &mut self,
+    //     target_sig: SignalId,
+    //     when_branches: &[(crate::ast::ExprId, crate::ast::ExprId)],
+    //     else_branch: Option<crate::ast::ExprId>,
+    //     env: &Environment,
+    // ) -> Result<ElaboratedProcess, ElaboratorError> {
+    //     let proc_sym = self.get_symbol_unw("cond_assign_proc");
+    //     let mut stmts = Vec::new();
+
+    //     let mut current_else: Option<Vec<ElaboratedSequentialStmt>> =
+    //         if let Some(else_expr_id) = else_branch {
+    //             let val_expr = self.lower_expr(else_expr_id, env)?;
+    //             Some(vec![ElaboratedSequentialStmt::SignalAssignment {
+    //                 target: target_sig,
+    //                 value_expr: val_expr,
+    //             }])
+    //         } else {
+    //             None
+    //         };
+
+    //     for (val_ast, cond_ast) in when_branches.iter().rev() {
+    //         let cond_expr = self.lower_expr(*cond_ast, env)?;
+    //         let val_expr = self.lower_expr(*val_ast, env)?;
+
+    //         let then_branch = vec![ElaboratedSequentialStmt::SignalAssignment {
+    //             target: target_sig,
+    //             value_expr: val_expr,
+    //         }];
+
+    //         current_else = Some(vec![ElaboratedSequentialStmt::If {
+    //             condition: cond_expr,
+    //             then_branch,
+    //             else_branch: current_else,
+    //         }]);
+    //     }
+
+    //     if let Some(lowered_if) = current_else {
+    //         stmts = lowered_if;
+    //     }
+
+    //     Ok(ElaboratedProcess {
+    //         label: proc_sym,
+    //         sensitivity_list: Vec::new(),
+    //         body_stmts: stmts,
+    //     })
+    // }
+
+    fn elaborate_component_instantiation(
+        &mut self,
+        label_sym: Option<SymbolId>,
+        comp_name: crate::ast::ExprId,
+        arch_sym: Option<SymbolId>,
+        generic_map_range: Range<u32>,
+        port_map_range: Range<u32>,
+        path: &str,
+        parent_env: &mut Environment,
+        entity_decl: &DeclRef,
+        arch_decl: &DeclRef,
+    ) -> Result<InstanceId, ElaboratorError> {
+        dbg!(&parent_env);
+        let component_name = self
+            .sa
+            .get_base_stripped(comp_name)
+            .expect("Should have already been stripped");
+
+        let label = match label_sym {
+            Some(s) => &self.get_str(s),
+            None => "inst",
+        };
+
+        let DeclRef::Architecture {
+            file_id: a_file_id,
+            ast_id: a_ast_id,
+            entity_tuple,
+            scope_id,
+        } = arch_decl
+        else {
+            panic!()
+        };
+
+        let child_entity_decl = self
+            .sa
+            .symbols
+            .lookup_local(ScopeId(0), component_name)
+            .ok_or_else(|| {
+                ElaboratorError::EntityNotFound(self.get_str(component_name).to_string())
+            })?;
+
+        let DeclRef::Entity {
+            file_id: child_e_file_id,
+            entity_id,
+            scope_id,
+        } = child_entity_decl
+        else {
+            panic!();
+        };
+        let s = self
+            .sa
+            .entity_architectures
+            .get(&(*entity_id, *child_e_file_id));
+        let Some(a) = s else {
+            return Err(ElaboratorError::EntityNotFound(
+                self.get_str(component_name).to_string(),
+            ));
+        };
+
+        let child_arch_decl = match arch_sym {
+            Some(arch_qual) => a
+                .iter()
+                .find(|p| {
+                    let DeclRef::Architecture {
+                        file_id,
+                        ast_id,
+                        entity_tuple,
+                        scope_id,
+                    } = p
+                    else {
+                        panic!()
+                    };
+                    let arch: &Architecture =
+                        &self.get_ast(*file_id).architectures[ast_id.0 as usize];
+                    arch.name == arch_qual
+                })
+                .ok_or_else(|| ElaboratorError::ArchitectureNotFound(component_name))?,
+            None => {
+                // We need to go to latest analyzed architecture as IEEE 7.3.3 says
+                match a.last() {
+                    Some(x) => x,
+                    None => return Err(ElaboratorError::ArchitectureNotFound(component_name)),
+                }
+            }
+        };
+
+        let ast = self.sa.get_ast(*child_e_file_id);
+
+        let mut evaluated_overrides = HashMap::new();
+        if !generic_map_range.is_empty() {
+            let generic_associations =
+                &ast.associations[generic_map_range.start as usize..generic_map_range.end as usize];
+
+            for assoc in generic_associations {
+                let formal_sym = match assoc.formal {
+                    Some(formal_id) => self.resolve_expr_symbol(formal_id)?,
+                    None => {
+                        return Err(ElaboratorError::NotYetImplemented {
+                            feature: "Positional generic mapping".to_string(),
+                            span: ast.span(comp_name),
+                        });
+                    }
+                };
+
+                let actual_val = self.eval_const_expr(assoc.actual, parent_env)?;
+                evaluated_overrides.insert(formal_sym, actual_val);
+            }
+        }
+
+        let child_path = format!("{}/{}", path, label);
+        let inst_sym = self.get_symbol(label).expect("TODO");
+        let child_entity = &ast.entities[entity_id.0 as usize];
+        let target_ports = ast.ports(child_entity);
+        let assoc_ast = self.sa.get_ast(*a_file_id);
+        let port_associations = &assoc_ast.associations
+        [port_map_range.start as usize..port_map_range.end as usize];
+        
+        let child_id = self.elaborate_instance(
+            inst_sym,
+            child_entity_decl,
+            child_arch_decl,
+            &evaluated_overrides,
+            &child_path,
+            parent_env,
+        )?;
+        
+        self.file_id = *a_file_id;
+        for (idx, assoc) in port_associations.iter().enumerate() {
+            // Resolve formal port using named identifier or positional index
+            let formal_port = match assoc.formal {
+                Some(formal_expr_id) => {
+                    if let Expr::Identifier { name, .. } = &assoc_ast.exprs[formal_expr_id.0 as usize] {
+                        target_ports.iter().find(|p| p.name == *name)
+                    } else {
+                        None
+                    }
+                }
+                None => target_ports.get(idx),
+            }
+            .ok_or_else(|| ElaboratorError::BindingError {
+                reason: format!(
+                    "No matching target port found for association index {}",
+                    idx
+                ),
+                span: ast.span(comp_name),
+            })?;
+
+            let formal_sym = formal_port.name;
+            self.print_expr(assoc.actual, assoc_ast);
+            let actual_sig = self.resolve_expr_signal(assoc.actual, parent_env)?;
+
+            // Attach resolved physical signal to child instance node
+            let child_node = &mut self.arena.instances[child_id.0 as usize];
+            child_node.port_bindings.push(PortBinding {
+                port_name: formal_sym,
+                actual_signal: actual_sig,
+            });
+        }
+
+        Ok(child_id)
+    }
+
+    fn print_expr(&self, expr_id: crate::ast::ExprId, ast: &AstArena) {
+        let f = FormatCtx {
+            item: ast.expr(expr_id),
+            source: "",
+            symbols: &self.sa.symbols.interner,
+            arena: ast,
+            indent: 0,
+        };
+        println!("{f}");
+    }
+
+    pub fn eval_const_expr(
+        &self,
+        expr_id: crate::ast::ExprId,
+        env: &Environment,
+    ) -> Result<EvaluatedValue, ElaboratorError> {
+        let expr = &self.sa.ast.exprs[expr_id.0 as usize];
+        match expr {
+            Expr::Literal { name } => {
+                let text = self.get_str(*name);
+                if text == "true" || text == "false" {
+                    Ok(EvaluatedValue::Boolean(text == "true"))
+                } else if text.starts_with('\'') && text.ends_with('\'') {
+                    Ok(EvaluatedValue::EnumLiteral(*name))
+                } else if let Ok(val) = text.parse::<i64>() {
+                    Ok(EvaluatedValue::Integer(val))
+                } else {
+                    Err(ElaboratorError::EvaluationFailed {
+                        reason: format!("Unsupported or invalid literal '{}'", text),
+                        span: self.sa.ast.span(expr_id),
+                    })
+                }
+            }
+            Expr::Identifier { name } => {
+                if let Some(val) = env.lookup_constant(*name) {
+                    Ok(val.clone()) // TODO
+                } else {
+                    Err(ElaboratorError::EvaluationFailed {
+                        reason: format!(
+                            "Constant identifier '{}' not found in environment",
+                            self.get_str(*name)
+                        ),
+                        span: self.sa.ast.span(expr_id),
+                    })
+                }
+            }
+            Expr::Binary { op, lhs, rhs, .. } => {
+                let left_val = self.eval_const_expr(*lhs, env)?;
+                let right_val = self.eval_const_expr(*rhs, env)?;
+                match (left_val, right_val, op) {
+                    (EvaluatedValue::Integer(l), EvaluatedValue::Integer(r), BinaryOp::Add) => {
+                        Ok(EvaluatedValue::Integer(l + r))
+                    }
+                    (EvaluatedValue::Integer(l), EvaluatedValue::Integer(r), BinaryOp::Sub) => {
+                        Ok(EvaluatedValue::Integer(l - r))
+                    }
+                    (EvaluatedValue::Integer(l), EvaluatedValue::Integer(r), BinaryOp::Mul) => {
+                        Ok(EvaluatedValue::Integer(l * r))
+                    }
+                    (EvaluatedValue::Integer(l), EvaluatedValue::Integer(r), BinaryOp::Div) => {
+                        if r == 0 {
+                            return Err(ElaboratorError::EvaluationFailed {
+                                reason: "Division by zero".to_string(),
+                                span: self.sa.ast.span(expr_id),
+                            });
+                        }
+                        Ok(EvaluatedValue::Integer(l / r))
+                    }
+                    (EvaluatedValue::Integer(l), EvaluatedValue::Integer(r), BinaryOp::Eq) => {
+                        Ok(EvaluatedValue::Boolean(l == r))
+                    }
+                    _ => Err(ElaboratorError::EvaluationFailed {
+                        reason: "Unsupported constant binary operation".to_string(),
+                        span: self.sa.ast.span(expr_id),
+                    }),
+                }
+            }
+            Expr::Unary {
+                op,
+                expr: inner_expr,
+                ..
+            } => {
+                let val = self.eval_const_expr(*inner_expr, env)?;
+                match (val, op) {
+                    (EvaluatedValue::Integer(v), UnaryOp::Neg) => Ok(EvaluatedValue::Integer(-v)),
+                    (EvaluatedValue::Boolean(v), UnaryOp::Not) => Ok(EvaluatedValue::Boolean(!v)),
+                    _ => Err(ElaboratorError::EvaluationFailed {
+                        reason: "Unsupported constant unary operation".to_string(),
+                        span: self.sa.ast.span(expr_id),
+                    }),
+                }
+            }
+            Expr::Grouping { expr: inner, .. } => self.eval_const_expr(*inner, env),
+            Expr::CallOrIndex { callee, args, .. } => {
+                let callee_sym = self.resolve_expr_symbol(*callee)?;
+                let callee_name = self.get_str(callee_sym);
+
+                let arg_slice = &self.sa.ast.expr_lists[args.start as usize..args.end as usize]; // TODO
+                let eval_args: Result<Vec<EvaluatedValue>, ElaboratorError> = arg_slice
+                    .iter()
+                    .map(|&arg_id| self.eval_const_expr(arg_id, env))
+                    .collect();
+                let eval_args = eval_args?;
+
+                match callee_name {
+                    "to_unsigned" | "to_signed" => {
+                        if eval_args.len() != 2 {
+                            return Err(ElaboratorError::EvaluationFailed {
+                                reason: format!(
+                                    "'{}' requires 2 arguments (value, size)",
+                                    callee_name
+                                ),
+                                span: self.sa.ast.span(expr_id),
+                            });
+                        }
+                        match (&eval_args[0], &eval_args[1]) {
+                            (EvaluatedValue::Integer(val), EvaluatedValue::Integer(size)) => {
+                                let size = *size as usize;
+                                let bits = (0..size)
+                                    .rev()
+                                    .map(|i| EvaluatedValue::Integer((val >> i) & 1))
+                                    .collect();
+                                Ok(EvaluatedValue::Vector(bits))
+                            }
+                            _ => Err(ElaboratorError::EvaluationFailed {
+                                reason: format!("'{}' requires integer arguments", callee_name),
+                                span: self.sa.ast.span(expr_id),
+                            }),
+                        }
+                    }
+                    "to_integer" => {
+                        if eval_args.len() != 1 {
+                            return Err(ElaboratorError::EvaluationFailed {
+                                reason: "'to_integer' requires exactly 1 argument".into(),
+                                span: self.sa.ast.span(expr_id),
+                            });
+                        }
+                        match &eval_args[0] {
+                            EvaluatedValue::Vector(bits) => {
+                                let mut num = 0i64;
+                                for bit in bits {
+                                    if let EvaluatedValue::Integer(b) = bit {
+                                        num = (num << 1) | (*b & 1);
+                                    }
+                                }
+                                Ok(EvaluatedValue::Integer(num))
+                            }
+                            EvaluatedValue::Integer(v) => Ok(EvaluatedValue::Integer(*v)),
+                            _ => Err(ElaboratorError::EvaluationFailed {
+                                reason: "'to_integer' expects vector or integer argument".into(),
+                                span: self.sa.ast.span(expr_id),
+                            }),
+                        }
+                    }
+                    other => Err(ElaboratorError::EvaluationFailed {
+                        reason: format!("Unsupported compile-time function call '{}'", other),
+                        span: self.sa.ast.span(expr_id),
+                    }),
+                }
+            }
+            Expr::PhysicalLiteral { value, unit } => {
+                let quantity = match self.eval_const_expr(*value, env)? {
+                    EvaluatedValue::Integer(val) => val,
+                    _ => {
+                        return Err(ElaboratorError::EvaluationFailed {
+                            reason: "Physical literal multiplier must evaluate to an integer"
+                                .to_string(),
+                            span: self.sa.ast.span(expr_id),
+                        });
+                    }
+                };
+                let u_str = self.get_str(*unit);
+                let scale_factor: i64 = match u_str {
+                    "fs" => 1,
+                    "ps" => 1_000,
+                    "ns" => 1_000_000,
+                    "us" => 1_000_000_000,
+                    "ms" => 1_000_000_000_000,
+                    "sec" | "s" => 1_000_000_000_000_000,
+                    "min" => 60 * 1_000_000_000_000_000,
+                    "hr" => 3600 * 1_000_000_000_000_000,
+                    _ => {
+                        return Err(ElaboratorError::EvaluationFailed {
+                            reason: format!("Unknown physical unit '{}'", u_str),
+                            span: self.sa.ast.span(expr_id),
+                        });
+                    }
+                };
+
+                let total_fs = quantity.checked_mul(scale_factor).ok_or_else(|| {
+                    ElaboratorError::EvaluationFailed {
+                        reason: format!(
+                            "Overflow while evaluating physical literal '{} {}'",
+                            quantity, u_str
+                        ),
+                        span: self.sa.ast.span(expr_id),
+                    }
+                })?;
+
+                Ok(EvaluatedValue::Integer(total_fs))
+            }
+            a => Err(ElaboratorError::EvaluationFailed {
+                reason: format!(
+                    "Non-static expression encountered during evaluation: {}\n Debug: {:?}",
+                    "ADD EXPR expression HERE TODO", a
+                ),
+                span: self.sa.ast.span(expr_id),
+            }),
+        }
+    }
+
+    // lowers an expression into the elaborator expression variant
+    fn lower_expr(
+        &mut self,
+        expr_id: crate::ast::ExprId,
+        env: &Environment,
+    ) -> Result<ExprId, ElaboratorError> {
+        let expr = &self.sa.get_ast(self.file_id).exprs[expr_id.0 as usize];
+        let lowered =
+            match expr {
+                Expr::Literal { name } => {
+                    let text = self.get_str(*name);
+                    let val =
+                        if let Ok(i) = text.parse::<i64>() {
+                            EvaluatedValue::Integer(i)
+                        } else if text == "true" || text == "false" {
+                            EvaluatedValue::Boolean(text == "true")
+                        } else if text.starts_with('\'') && text.ends_with('\'') {
+                            let sym =
+                                self.sa.symbols.interner.get_symbol(text).ok_or_else(|| {
+                                    ElaboratorError::SymbolNotFound(text.to_string())
+                                })?;
+                            EvaluatedValue::EnumLiteral(sym)
+                        } else {
+                            // Fallback for enumerated identifier literals (e.g., state names like IDLE)
+                            let sym =
+                                self.sa.symbols.interner.get_symbol(text).ok_or_else(|| {
+                                    ElaboratorError::SymbolNotFound(text.to_string())
+                                })?;
+                            EvaluatedValue::EnumLiteral(sym)
+                        };
+                    EvaluatedExpr::Literal(val)
+                }
+                Expr::Identifier { name } => {
+                    if let Some(sig_id) = env.lookup_signal(*name) {
+                        EvaluatedExpr::SignalRead(sig_id)
+                    } else if let Some(val) = env.lookup_constant(*name) {
+                        EvaluatedExpr::Literal(val.clone())
+                    } else {
+                        dbg!("here1");
+                        return Err(ElaboratorError::SignalNotFound(
+                            self.get_str(*name).to_string(),
+                        ));
+                    }
+                }
+                Expr::Binary { op, lhs, rhs, .. } => {
+                    let l_id = self.lower_expr(*lhs, env)?;
+                    let r_id = self.lower_expr(*rhs, env)?;
+                    EvaluatedExpr::BinaryOp {
+                        lhs: l_id,
+                        op: *op,
+                        rhs: r_id,
+                    }
+                }
+                Expr::Unary { op, expr, .. } => {
+                    let inner_id = self.lower_expr(*expr, env)?;
+                    EvaluatedExpr::UnaryOp {
+                        op: *op,
+                        expr: inner_id,
+                    }
+                }
+                Expr::Grouping { expr, .. } => {
+                    return self.lower_expr(*expr, env);
+                }
+                a => {
+                    return Err(ElaboratorError::NotYetImplemented {
+                        feature: format!("Complex expression lowering, {:?}", a),
+                        span: self.sa.get_ast(self.file_id).span(expr_id),
+                    });
+                }
+            };
+
+        Ok(self.arena.alloc_expr(lowered))
+    }
+
+    /// Given the expr_id and environment, it returns the signal
+    fn resolve_expr_signal(
+        &self,
+        expr_id: crate::ast::ExprId,
+        env: &Environment,
+    ) -> Result<SignalId, ElaboratorError> {
+        let sym = self.resolve_expr_symbol(expr_id)?;
+        dbg!(self.get_str(sym));
+        let a = env.lookup_signal(sym).ok_or_else(|| {
+            panic!();
+            dbg!("here2");
+            ElaboratorError::SignalNotFound(self.get_str(sym).to_string())
+        });
+        a
+    }
+
+    /// Returns the symbol of the identifier corresponding to expr_id
+    fn resolve_expr_symbol(
+        &self,
+        expr_id: crate::ast::ExprId,
+    ) -> Result<SymbolId, ElaboratorError> {
+        let expr = &self.sa.get_ast(self.file_id).exprs[expr_id.0 as usize];
+        match expr {
+            Expr::Identifier { name } => Ok(*name),
+            _ => Err(ElaboratorError::EvaluationFailed {
+                reason: "Expected identifier expression".into(),
+                span: self.sa.get_ast(self.file_id).span(expr_id),
+            }),
+        }
+    }
+
+    /// Processes top-level AST context items (`library ...; use ...;`)
+    pub fn elaborate_context_items(
+        &self,
+        env: &mut Environment,
+        registry: &LibraryRegistry,
+        entity: &Entity,
+    ) -> Result<(), ElaboratorError> {
+        for item in &self.sa.ast.contexts {
+            //TODO
+            match item {
+                ContextItem::Library { name, span } => {
+                    // Ensures the referenced library symbol is known in the interner
+                    let a = self.get_str(*name);
+
+                    // Special-case handling for standard libraries or work aliases
+                    if a.eq("std") || a.eq("ieee") {
+                        // Core types (std_logic, integer, etc.) are pre-loaded in SemanticAnalyzer
+                        continue;
+                    }
+
+                    if !registry.libraries.contains_key(a) && a.ne("work") {
+                        return Err(ElaboratorError::EvaluationFailed {
+                            reason: format!("Library '{}' was referenced but not loaded", a),
+                            span: Span { start: 0, end: 0 }, // TODO correct span
+                        });
+                    }
+                }
+                ContextItem::Use { path, span } => {
+                    self.elaborate_use_clause(*path, env, registry)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn elaborate_use_clause(
+        &self,
+        path: crate::ast::ExprId,
+        env: &mut Environment,
+        registry: &LibraryRegistry,
+    ) -> Result<(), ElaboratorError> {
+        let mut parts: Vec<&str> = vec![];
+        let mut expr = self.sa.ast.expr(path);
+        loop {
+            expr = match expr {
+                Expr::RecordAccess { target, field } => {
+                    parts.push(self.get_str(*field));
+                    self.sa.ast.expr(*target)
+                }
+                Expr::Identifier { name } => {
+                    parts.push(self.get_str(*name));
+                    break;
+                }
+                _ => unreachable!("Checked during SA"),
+            }
+        }
+        parts.reverse();
+
+        // Normalize case (VHDL is case-insensitive)
+        let lib_name = parts[0].to_lowercase();
+        let pkg_name = parts[1].to_lowercase();
+        let selector = parts.get(2).copied().unwrap_or("all");
+
+        if lib_name == "ieee" || lib_name == "std" {
+            return Ok(());
+        }
+
+        // Direct string lookup on registry (assuming LibraryRegistry uses HashMap<String, Library>)
+        let pkg_exports = registry.get_package(&lib_name, &pkg_name).ok_or_else(|| {
+            ElaboratorError::EvaluationFailed {
+                reason: format!("Package '{}.{}' not found in registry", lib_name, pkg_name),
+                span: Span { start: 0, end: 0 },
+            }
+        })?;
+
+        if selector.eq_ignore_ascii_case("all") {
+            env.import_package(pkg_exports);
+        } else {
+            let item_sym = self
+                .sa
+                .symbols
+                .interner
+                .get_symbol(&selector.to_lowercase())
+                .ok_or_else(|| ElaboratorError::EvaluationFailed {
+                    reason: format!("Item '{}' not found in symbol interner", selector),
+                    span: Span { start: 0, end: 0 },
+                })?;
+
+            if !env.import_package_item(pkg_exports, item_sym) {
+                return Err(ElaboratorError::EvaluationFailed {
+                    reason: format!(
+                        "Symbol '{}' does not exist in '{}.{}'",
+                        selector, lib_name, pkg_name
+                    ),
+                    span: Span { start: 0, end: 0 },
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    fn get_symbol_unw(&self, name: &str) -> SymbolId {
+        self.sa.symbols.interner.get_symbol(name).expect(&format!(
+            "If semantic analysis passed, this shouldn't panic. Panicked on {}",
+            name
+        ))
+    }
+    fn get_symbol(&self, name: &str) -> Option<SymbolId> {
+        self.sa.symbols.interner.get_symbol(name)
+    }
+
+    pub fn get_type_bounds(&self, type_id: TypeId) -> (i64, i64) {
+        if type_id == self.sa.type_std_logic
+            || type_id == self.sa.type_boolean
+            || type_id == self.sa.type_real
+        {
+            return (0, 0);
+        }
+
+        if type_id == self.sa.type_integer {
+            return (i32::MAX as i64, i32::MIN as i64);
+        }
+
+        match self.sa.types.get(type_id) {
+            Some(TypeKind::Array { .. }) => (7, 0), // TODO
+            _ => (0, 0),
+        }
+    }
+
+    fn resolve_type_by_sym(&self, name: SymbolId) -> Result<TypeId, ElaboratorError> {
+        if let Some(decl_ref) = self.sa.symbols.lookup(self.sa.current_scope, name) {
+            return Ok(self.sa.get_decl_type(decl_ref));
+        }
+        let clean = self.get_str(name);
+        match clean {
+            "std_logic" => Ok(self.sa.type_std_logic),
+            "std_logic_vector" => Ok(self.sa.type_std_logic_vector),
+            "integer" => Ok(self.sa.type_integer),
+            "boolean" => Ok(self.sa.type_boolean),
+            "real" => Ok(self.sa.type_real),
+            _ => Err(ElaboratorError::EvaluationFailed {
+                reason: format!("Unknown type identifier '{}'", clean),
+                span: Span { start: 0, end: 0 },
+            }),
+        }
+    }
+
+    fn get_thing<Id, Thing>(&self, id: Id, file_id: FileId) -> &Thing
+    where
+        AstArena: GetThing<Id, Thing>,
+    {
+        let ast = &self.sa.units[file_id.0 as usize];
+        ast.get_thing(id)
+    }
+
+    fn get_ast(&self, file_id: crate::workspace::FileId) -> &AstArena {
+        &self.sa.units[file_id.0 as usize]
+    }
+}
+pub trait FromDeclRef<'a, Target> {
+    fn fetch_from_decl(&'a self, decl: &DeclRef) -> (&Target, FileId);
+}
+
+impl<'a> FromDeclRef<'a, Entity> for Elaborator<'a> {
+    fn fetch_from_decl(&'a self, decl: &DeclRef) -> (&Entity, FileId) {
+        if let DeclRef::Entity {
+            file_id, entity_id, ..
+        } = decl
+        {
+            let ast = &self.sa.units[file_id.0 as usize];
+            (&ast.entities[entity_id.0 as usize], *file_id)
+        } else {
+            panic!()
+        }
+    }
+}
+
+impl<'a> FromDeclRef<'a, Architecture> for Elaborator<'a> {
+    fn fetch_from_decl(&'a self, decl: &DeclRef) -> (&Architecture, FileId) {
+        if let DeclRef::Architecture {
+            file_id, ast_id, ..
+        } = decl
+        {
+            let ast = &self.sa.units[file_id.0 as usize];
+            (&ast.architectures[ast_id.0 as usize], *file_id)
+        } else {
+            panic!()
+        }
+    }
+}

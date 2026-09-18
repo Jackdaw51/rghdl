@@ -391,9 +391,9 @@ impl<'a> Parser<'a> {
                 match next_tok.kind {
                     // Signal Assignment: target <= expr;
                     TokenKind::OpSignalAssignOrLEq => {
-                        self.print_expr(target_expr);
+                        // self.print_expr(target_expr);
                         let expression = self.parse_expression()?;
-                        self.print_expr(expression);
+                        // self.print_expr(expression);
                         let after = if self.next_is(TokenKind::KwAfter) {
                             self.advance(); // consume `after`
                             Some(self.parse_expression()?)
@@ -558,10 +558,10 @@ impl<'a> Parser<'a> {
         };
         match arch_qualifier {
             Some(a) => {
-                dbg!(self.interner.get(a));
+                self.interner.get(a);
             }
             None => {
-                self.print_expr(component_name);
+                // self.print_expr(component_name);
             }
         }
 
@@ -610,7 +610,8 @@ impl<'a> Parser<'a> {
                     actual: first_expr,
                 }
             };
-            // dbg!(assoc.clone(), self.arena.expr(first_expr));
+            self.print_expr(first_expr);
+            dbg!();
             self.arena.associations.push(assoc);
 
             if self.next_is(TokenKind::Comma) {

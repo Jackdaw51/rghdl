@@ -79,8 +79,8 @@ impl SemanticError {
 }
 
 pub struct SemanticAnalyzer<'a> {
-    ast: &'a AstArena,
-    units: &'a [AstArena],
+    pub ast: &'a AstArena,
+    pub units: &'a [AstArena],
     current_file: FileId,
     pub symbols: &'a mut SymbolTable,
     pub types: TypeArena, // holds a vector of types that are referenced by TypeId
@@ -94,8 +94,13 @@ pub struct SemanticAnalyzer<'a> {
     pub type_boolean: TypeId,
     pub type_real: TypeId,
     pub type_time: TypeId,
-    pub entity_architectures: HashMap<EntityId, Vec<ArchitectureId>>,
+    pub entity_architectures: HashMap<(EntityId, FileId), Vec<DeclRef>>,
     pub expr_types: Vec<TypeId>,
+}
+impl<'a> SemanticAnalyzer<'a> {
+    pub(crate) fn get_ast(&self, file_id: FileId) -> &AstArena {
+        &self.units[file_id.0 as usize]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,7 +113,7 @@ pub enum DeclRef {
     Architecture {
         file_id: FileId,
         ast_id: ArchitectureId,
-        entity_id: EntityId,
+        entity_tuple: (EntityId, FileId),
         scope_id: ScopeId,
     },
     Port {

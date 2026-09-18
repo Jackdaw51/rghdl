@@ -284,33 +284,50 @@ impl<'a> super::SemanticAnalyzer<'a> {
         // Link Architecture Scope -> Entity Scope -> Global Scope
         //Should be safe to unwrap
         let entity_sym = arch.entity_name;
+        let arch_name = arch.name;
 
         // Find corresponding Entity scope (or fallback to Global)
-        let (entity_scope, entity_id) = match self.symbols.lookup(self.current_scope, entity_sym) {
-            Some(DeclRef::Entity {
-                scope_id,
-                entity_id,
-                file_id,
-            }) => (scope_id, entity_id),
-            _s => {
-                self.errors.push(SemanticError::new(
-                    SemanticErrorKind::EntitySpecifiedNotFound,
-                    arch.span,
-                    self.current_file,
-                ));
-                return;
-            }
-        };
 
-        self.entity_architectures
-            .entry(entity_id)
-            .or_default()
-            .push(ArchitectureId(arch_id));
+        let (entity_scope, entity_id, file_id) =
+            match self.symbols.lookup(self.current_scope, entity_sym) {
+                Some(DeclRef::Entity {
+                    scope_id,
+                    entity_id,
+                    file_id,
+                }) => (scope_id, entity_id, file_id),
+                _s => {
+                    self.errors.push(SemanticError::new(
+                        SemanticErrorKind::EntitySpecifiedNotFound,
+                        arch.span,
+                        self.current_file,
+                    ));
+                    return;
+                }
+            };
 
         let arch_scope = self
             .symbols
             .scopes
             .alloc(ScopeKind::Architecture, Some(entity_scope));
+        let arch_decl = DeclRef::Architecture {
+            file_id: self.current_file,
+            entity_tuple: (entity_id, file_id),
+            scope_id: entity_scope,
+            ast_id: ArchitectureId(arch_id),
+        };
+
+        self.entity_architectures
+            .entry((entity_id,file_id))
+            .or_default()
+            .push(arch_decl.clone());
+
+        if let Err(_s) = self.symbols.define(entity_scope, arch_name, arch_decl) {
+            self.errors.push(SemanticError::new(
+                SemanticErrorKind::DuplicateDeclaration,
+                arch.span,
+                self.current_file,
+            ));
+        }
 
         let prev_scope = self.current_scope;
         self.current_scope = arch_scope;
@@ -944,7 +961,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
         self.symbols.interner.get(name)
     }
 
-    fn get_base_stripped(&self, expr_id: ExprId) -> Option<SymbolId> {
+    pub fn get_base_stripped(&self, expr_id: ExprId) -> Option<SymbolId> {
         let expr = self.ast.expr(expr_id);
         match expr {
             Expr::CallOrIndex { callee, args } => self.get_base_stripped(*callee),

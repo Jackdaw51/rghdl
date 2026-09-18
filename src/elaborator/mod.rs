@@ -12,6 +12,7 @@ mod evaluated_value;
 
 use crate::analyzer::{SemanticAnalyzer, SymbolId, TypeId};
 use crate::ast::{AstArena, BinaryOp, PortId, PortMode, UnaryOp};
+use crate::workspace::FileId;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -66,7 +67,7 @@ pub struct ElaboratedSignal {
     pub type_id: TypeId,
     pub high_bound: i64,
     pub low_bound: i64,
-    pub driver_count: usize,
+    pub driver_count: usize, // 14.7.3
 }
 
 #[derive(Debug, Clone)]
@@ -161,7 +162,6 @@ impl ElaboratedArena {
 
 /// The structure that manages the Data of the elaboration
 pub struct Elaborator<'a> {
-    pub ast: &'a AstArena,
     pub sa: &'a SemanticAnalyzer<'a>,
 
     /// The physical netlist being constructed
@@ -169,6 +169,8 @@ pub struct Elaborator<'a> {
 
     /// Counter to generate unique hierarchical names if needed
     instance_counter: u32,
+
+    file_id: FileId
 }
 
 use crate::parser::Span;
@@ -179,7 +181,7 @@ pub enum ElaboratorError {
     EntityNotFound(String),
 
     /// No architecture was found for the given entity.
-    ArchitectureNotFound(String),
+    ArchitectureNotFound(SymbolId),
 
     /// An error occurred while evaluating a constant or generic expression.
     EvaluationFailed {
@@ -201,6 +203,7 @@ pub enum ElaboratorError {
     SignalNotFound(String),
     SymbolNotFound(String),
     NotAnEntity,
+    NoMatchingArchitectures,
 }
 
 // Environment
@@ -217,23 +220,6 @@ pub struct Environment {
     pub variables: HashMap<SymbolId, EvaluatedValue>,
 
     pub components: HashMap<SymbolId, ComponentSignature>,
-}
-impl Environment {
-    fn register_component_signature(
-        &mut self,
-        sym: SymbolId,
-        ports_start: PortId,
-        ports_end: PortId,
-    ) -> Result<(), ElaboratorError> {
-        self.components.insert(
-            sym,
-            ComponentSignature {
-                ports_start,
-                ports_end,
-            },
-        );
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone)]
