@@ -14,6 +14,7 @@ use crate::analyzer::{SemanticAnalyzer, SymbolId, TypeId};
 use crate::ast::{AstArena, BinaryOp, PortId, PortMode, UnaryOp};
 use crate::workspace::FileId;
 use std::collections::HashMap;
+use std::error::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExprId(pub u32);

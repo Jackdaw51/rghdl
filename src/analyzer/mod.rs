@@ -9,7 +9,9 @@ use std::fmt::Debug;
 use std::ops::Range;
 
 use crate::ast::*;
+use crate::elaborator::LibraryRegistry;
 use crate::parser::Span;
+use crate::printer::SAFormatCtx;
 use crate::workspace::FileId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -19,7 +21,7 @@ pub struct ScopeId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymbolId(pub u32);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SemanticErrorKind {
     UndefinedSymbol,
     DuplicateDeclaration,
@@ -61,7 +63,7 @@ pub enum SemanticErrorKind {
     EntitySpecifiedNotFound,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SemanticError {
     pub kind: SemanticErrorKind,
     pub span: Span,
@@ -79,8 +81,8 @@ impl SemanticError {
 }
 
 pub struct SemanticAnalyzer<'a> {
-    pub ast: &'a AstArena,
-    pub units: &'a [AstArena],
+    ast: &'a AstArena,
+    pub asts: &'a [AstArena],
     current_file: FileId,
     pub symbols: &'a mut SymbolTable,
     pub types: TypeArena, // holds a vector of types that are referenced by TypeId
@@ -99,8 +101,25 @@ pub struct SemanticAnalyzer<'a> {
 }
 impl<'a> SemanticAnalyzer<'a> {
     pub(crate) fn get_ast(&self, file_id: FileId) -> &AstArena {
-        &self.units[file_id.0 as usize]
+        &self.asts[file_id.0 as usize]
     }
+    pub(crate) fn get_str(&self, sym: SymbolId) -> &str {
+        self.symbols.interner.get(sym)
+    }
+
+    pub(crate) fn analyze(
+        &mut self,
+        registry: &mut LibraryRegistry,
+    ) -> Result<(), Vec<SemanticError>> {
+        self.analyze_all_entities(&registry);
+        self.analyze_all_archs(&registry);
+        if !self.errors.is_empty() {
+            return Err(self.errors.clone());
+        }
+        return Ok(());
+    }
+    
+
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

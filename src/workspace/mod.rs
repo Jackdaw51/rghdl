@@ -2,16 +2,17 @@ mod workspace;
 
 use std::fmt::Display;
 
-use crate::analyzer::{SymbolInterner, SymbolTable};
+use crate::analyzer::{SemanticAnalyzer, SymbolInterner, SymbolTable};
 use crate::ast::AstArena;
+use crate::elaborator::Elaborator;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FileId(pub u32);
 
 pub struct Workspace<'a> {
     pub table: SymbolTable,
-    files: Vec<AstArena>,
-    strings: Vec<&'a str>,
+    pub(crate) asts: Vec<AstArena>,
+    pub(crate) strings: Vec<&'a str>,
     pub paths: Vec<&'a str>,
     file_counter: u32,
     pub(crate) registry: crate::elaborator::LibraryRegistry,

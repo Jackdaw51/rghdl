@@ -48,7 +48,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
         Self {
             ast,
-            units: asts,
+            asts,
             current_file: FileId(0),
             symbols,
             types: registry.types.clone(),
@@ -67,12 +67,12 @@ impl<'a> super::SemanticAnalyzer<'a> {
     pub fn set_active_file(&mut self, file_id: FileId) -> FileId {
         let r = self.current_file;
         self.current_file = file_id;
-        self.ast = &self.units[file_id.0 as usize];
+        self.ast = &self.asts[file_id.0 as usize];
         r
     }
 
     pub fn analyze_all_entities(&mut self, registry: &LibraryRegistry) {
-        for files in self.units.iter().enumerate().map(|f| FileId(f.0 as u32)) {
+        for files in self.asts.iter().enumerate().map(|f| FileId(f.0 as u32)) {
             self.set_active_file(files);
             for (i, entity) in self.ast.entities.iter().enumerate() {
                 self.analyze_entity(entity, i as u32, registry);
@@ -80,7 +80,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
         }
     }
     pub fn analyze_all_archs(&mut self, registry: &LibraryRegistry) {
-        for files in self.units.iter().enumerate().map(|f| FileId(f.0 as u32)) {
+        for files in self.asts.iter().enumerate().map(|f| FileId(f.0 as u32)) {
             self.set_active_file(files);
             for (i, arch) in self.ast.architectures.iter().enumerate() {
                 self.analyze_architecture(arch, i as u32, registry);
@@ -317,7 +317,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
         };
 
         self.entity_architectures
-            .entry((entity_id,file_id))
+            .entry((entity_id, file_id))
             .or_default()
             .push(arch_decl.clone());
 
@@ -980,6 +980,37 @@ impl<'a> super::SemanticAnalyzer<'a> {
             }
             Expr::Identifier { name } => return Some(*name),
             _ => None,
+        }
+    }
+    pub(crate) fn get_base_stripped_from_file(
+        &self,
+        expr_id: ExprId,
+        file_id: FileId,
+    ) -> Option<SymbolId> {
+        {
+            let ast = self.get_ast(file_id);
+            let expr = ast.expr(expr_id);
+            dbg!(expr);
+            match expr {
+                Expr::CallOrIndex { callee, args } => {
+                    self.get_base_stripped_from_file(*callee, file_id)
+                }
+                Expr::RecordAccess { target, field } => {
+                    let a = ast.expr(*target);
+                    match a {
+                        Expr::Identifier { name } => {
+                            if self.get_text(*name) == "work" {
+                                return Some(*field);
+                            } else {
+                                todo!();
+                            }
+                        }
+                        _ => self.get_base_stripped(*target),
+                    }
+                }
+                Expr::Identifier { name } => return Some(*name),
+                _ => None,
+            }
         }
     }
 }

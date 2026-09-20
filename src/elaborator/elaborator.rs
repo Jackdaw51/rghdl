@@ -225,9 +225,18 @@ impl<'a> Elaborator<'a> {
         env: &mut Environment,
     ) -> Result<HashMap<SymbolId, EvaluatedValue>, ElaboratorError> {
         let mut resolved = HashMap::new();
-        let (entity, file_id): (&Entity, _) = self.fetch_from_decl(decl_entity);
+        let DeclRef::Entity {
+            file_id,
+            entity_id,
+            scope_id,
+        } = decl_entity
+        else {
+            panic!()
+        };
 
-        let ast = self.get_ast(file_id);
+        self.file_id = *file_id;
+        let ast = self.get_ast(*file_id);
+        let entity = &ast.entities[entity_id.0 as usize];
         let decl_slice =
             &ast.decls[entity.generics_start.0 as usize..entity.generics_end.0 as usize];
 
@@ -264,6 +273,7 @@ impl<'a> Elaborator<'a> {
     }
 
     fn resolve_port_type(&self, port: &Port) -> Result<TypeId, ElaboratorError> {
+        let ast = self.get_ast(self.file_id);
         self.sa
             .expr_types
             .get(port.port_type.0 as usize)
@@ -273,7 +283,7 @@ impl<'a> Elaborator<'a> {
                     "Failed to resolve type for port '{}'",
                     self.get_str(port.name)
                 ),
-                span: self.sa.ast.span(port.port_type),
+                span: ast.span(port.port_type),
             })
     }
 
@@ -503,12 +513,6 @@ impl<'a> Elaborator<'a> {
         entity_decl: &DeclRef,
         arch_decl: &DeclRef,
     ) -> Result<InstanceId, ElaboratorError> {
-        dbg!(&parent_env);
-        let component_name = self
-            .sa
-            .get_base_stripped(comp_name)
-            .expect("Should have already been stripped");
-
         let label = match label_sym {
             Some(s) => &self.get_str(s),
             None => "inst",
@@ -524,11 +528,20 @@ impl<'a> Elaborator<'a> {
             panic!()
         };
 
+        let component_name = self
+            .sa
+            .get_base_stripped_from_file(comp_name, self.file_id)
+            .expect("Should have already been stripped");
+
         let child_entity_decl = self
             .sa
             .symbols
             .lookup_local(ScopeId(0), component_name)
             .ok_or_else(|| {
+                // panic!();
+                dbg!(label);
+                dbg!(self.file_id);
+                dbg!(component_name);
                 ElaboratorError::EntityNotFound(self.get_str(component_name).to_string())
             })?;
 
@@ -605,9 +618,9 @@ impl<'a> Elaborator<'a> {
         let child_entity = &ast.entities[entity_id.0 as usize];
         let target_ports = ast.ports(child_entity);
         let assoc_ast = self.sa.get_ast(*a_file_id);
-        let port_associations = &assoc_ast.associations
-        [port_map_range.start as usize..port_map_range.end as usize];
-        
+        let port_associations =
+            &assoc_ast.associations[port_map_range.start as usize..port_map_range.end as usize];
+
         let child_id = self.elaborate_instance(
             inst_sym,
             child_entity_decl,
@@ -616,13 +629,15 @@ impl<'a> Elaborator<'a> {
             &child_path,
             parent_env,
         )?;
-        
+
         self.file_id = *a_file_id;
         for (idx, assoc) in port_associations.iter().enumerate() {
             // Resolve formal port using named identifier or positional index
             let formal_port = match assoc.formal {
                 Some(formal_expr_id) => {
-                    if let Expr::Identifier { name, .. } = &assoc_ast.exprs[formal_expr_id.0 as usize] {
+                    if let Expr::Identifier { name, .. } =
+                        &assoc_ast.exprs[formal_expr_id.0 as usize]
+                    {
                         target_ports.iter().find(|p| p.name == *name)
                     } else {
                         None
@@ -639,7 +654,7 @@ impl<'a> Elaborator<'a> {
             })?;
 
             let formal_sym = formal_port.name;
-            self.print_expr(assoc.actual, assoc_ast);
+            // self.print_expr(assoc.actual, assoc_ast);
             let actual_sig = self.resolve_expr_signal(assoc.actual, parent_env)?;
 
             // Attach resolved physical signal to child instance node
@@ -669,7 +684,8 @@ impl<'a> Elaborator<'a> {
         expr_id: crate::ast::ExprId,
         env: &Environment,
     ) -> Result<EvaluatedValue, ElaboratorError> {
-        let expr = &self.sa.ast.exprs[expr_id.0 as usize];
+        let ast = self.get_ast(self.file_id);
+        let expr = &ast.exprs[expr_id.0 as usize];
         match expr {
             Expr::Literal { name } => {
                 let text = self.get_str(*name);
@@ -682,7 +698,7 @@ impl<'a> Elaborator<'a> {
                 } else {
                     Err(ElaboratorError::EvaluationFailed {
                         reason: format!("Unsupported or invalid literal '{}'", text),
-                        span: self.sa.ast.span(expr_id),
+                        span: ast.span(expr_id),
                     })
                 }
             }
@@ -695,7 +711,7 @@ impl<'a> Elaborator<'a> {
                             "Constant identifier '{}' not found in environment",
                             self.get_str(*name)
                         ),
-                        span: self.sa.ast.span(expr_id),
+                        span: ast.span(expr_id),
                     })
                 }
             }
@@ -716,7 +732,7 @@ impl<'a> Elaborator<'a> {
                         if r == 0 {
                             return Err(ElaboratorError::EvaluationFailed {
                                 reason: "Division by zero".to_string(),
-                                span: self.sa.ast.span(expr_id),
+                                span: ast.span(expr_id),
                             });
                         }
                         Ok(EvaluatedValue::Integer(l / r))
@@ -726,7 +742,7 @@ impl<'a> Elaborator<'a> {
                     }
                     _ => Err(ElaboratorError::EvaluationFailed {
                         reason: "Unsupported constant binary operation".to_string(),
-                        span: self.sa.ast.span(expr_id),
+                        span: ast.span(expr_id),
                     }),
                 }
             }
@@ -741,7 +757,7 @@ impl<'a> Elaborator<'a> {
                     (EvaluatedValue::Boolean(v), UnaryOp::Not) => Ok(EvaluatedValue::Boolean(!v)),
                     _ => Err(ElaboratorError::EvaluationFailed {
                         reason: "Unsupported constant unary operation".to_string(),
-                        span: self.sa.ast.span(expr_id),
+                        span: ast.span(expr_id),
                     }),
                 }
             }
@@ -750,7 +766,7 @@ impl<'a> Elaborator<'a> {
                 let callee_sym = self.resolve_expr_symbol(*callee)?;
                 let callee_name = self.get_str(callee_sym);
 
-                let arg_slice = &self.sa.ast.expr_lists[args.start as usize..args.end as usize]; // TODO
+                let arg_slice = &ast.expr_lists[args.start as usize..args.end as usize]; // TODO
                 let eval_args: Result<Vec<EvaluatedValue>, ElaboratorError> = arg_slice
                     .iter()
                     .map(|&arg_id| self.eval_const_expr(arg_id, env))
@@ -765,7 +781,7 @@ impl<'a> Elaborator<'a> {
                                     "'{}' requires 2 arguments (value, size)",
                                     callee_name
                                 ),
-                                span: self.sa.ast.span(expr_id),
+                                span: ast.span(expr_id),
                             });
                         }
                         match (&eval_args[0], &eval_args[1]) {
@@ -779,7 +795,7 @@ impl<'a> Elaborator<'a> {
                             }
                             _ => Err(ElaboratorError::EvaluationFailed {
                                 reason: format!("'{}' requires integer arguments", callee_name),
-                                span: self.sa.ast.span(expr_id),
+                                span: ast.span(expr_id),
                             }),
                         }
                     }
@@ -787,7 +803,7 @@ impl<'a> Elaborator<'a> {
                         if eval_args.len() != 1 {
                             return Err(ElaboratorError::EvaluationFailed {
                                 reason: "'to_integer' requires exactly 1 argument".into(),
-                                span: self.sa.ast.span(expr_id),
+                                span: ast.span(expr_id),
                             });
                         }
                         match &eval_args[0] {
@@ -803,13 +819,13 @@ impl<'a> Elaborator<'a> {
                             EvaluatedValue::Integer(v) => Ok(EvaluatedValue::Integer(*v)),
                             _ => Err(ElaboratorError::EvaluationFailed {
                                 reason: "'to_integer' expects vector or integer argument".into(),
-                                span: self.sa.ast.span(expr_id),
+                                span: ast.span(expr_id),
                             }),
                         }
                     }
                     other => Err(ElaboratorError::EvaluationFailed {
                         reason: format!("Unsupported compile-time function call '{}'", other),
-                        span: self.sa.ast.span(expr_id),
+                        span: ast.span(expr_id),
                     }),
                 }
             }
@@ -820,7 +836,7 @@ impl<'a> Elaborator<'a> {
                         return Err(ElaboratorError::EvaluationFailed {
                             reason: "Physical literal multiplier must evaluate to an integer"
                                 .to_string(),
-                            span: self.sa.ast.span(expr_id),
+                            span: ast.span(expr_id),
                         });
                     }
                 };
@@ -837,7 +853,7 @@ impl<'a> Elaborator<'a> {
                     _ => {
                         return Err(ElaboratorError::EvaluationFailed {
                             reason: format!("Unknown physical unit '{}'", u_str),
-                            span: self.sa.ast.span(expr_id),
+                            span: ast.span(expr_id),
                         });
                     }
                 };
@@ -848,7 +864,7 @@ impl<'a> Elaborator<'a> {
                             "Overflow while evaluating physical literal '{} {}'",
                             quantity, u_str
                         ),
-                        span: self.sa.ast.span(expr_id),
+                        span: ast.span(expr_id),
                     }
                 })?;
 
@@ -859,7 +875,7 @@ impl<'a> Elaborator<'a> {
                     "Non-static expression encountered during evaluation: {}\n Debug: {:?}",
                     "ADD EXPR expression HERE TODO", a
                 ),
-                span: self.sa.ast.span(expr_id),
+                span: ast.span(expr_id),
             }),
         }
     }
@@ -945,7 +961,6 @@ impl<'a> Elaborator<'a> {
         env: &Environment,
     ) -> Result<SignalId, ElaboratorError> {
         let sym = self.resolve_expr_symbol(expr_id)?;
-        dbg!(self.get_str(sym));
         let a = env.lookup_signal(sym).ok_or_else(|| {
             panic!();
             dbg!("here2");
@@ -976,7 +991,8 @@ impl<'a> Elaborator<'a> {
         registry: &LibraryRegistry,
         entity: &Entity,
     ) -> Result<(), ElaboratorError> {
-        for item in &self.sa.ast.contexts {
+        let ast = self.get_ast(self.file_id);
+        for item in &ast.contexts {
             //TODO
             match item {
                 ContextItem::Library { name, span } => {
@@ -1011,12 +1027,13 @@ impl<'a> Elaborator<'a> {
         registry: &LibraryRegistry,
     ) -> Result<(), ElaboratorError> {
         let mut parts: Vec<&str> = vec![];
-        let mut expr = self.sa.ast.expr(path);
+        let ast = self.get_ast(self.file_id);
+        let mut expr = ast.expr(path);
         loop {
             expr = match expr {
                 Expr::RecordAccess { target, field } => {
                     parts.push(self.get_str(*field));
-                    self.sa.ast.expr(*target)
+                    ast.expr(*target)
                 }
                 Expr::Identifier { name } => {
                     parts.push(self.get_str(*name));
@@ -1121,12 +1138,12 @@ impl<'a> Elaborator<'a> {
     where
         AstArena: GetThing<Id, Thing>,
     {
-        let ast = &self.sa.units[file_id.0 as usize];
+        let ast = &self.sa.asts[file_id.0 as usize];
         ast.get_thing(id)
     }
 
     fn get_ast(&self, file_id: crate::workspace::FileId) -> &AstArena {
-        &self.sa.units[file_id.0 as usize]
+        &self.sa.asts[file_id.0 as usize]
     }
 }
 pub trait FromDeclRef<'a, Target> {
@@ -1139,7 +1156,7 @@ impl<'a> FromDeclRef<'a, Entity> for Elaborator<'a> {
             file_id, entity_id, ..
         } = decl
         {
-            let ast = &self.sa.units[file_id.0 as usize];
+            let ast = &self.sa.asts[file_id.0 as usize];
             (&ast.entities[entity_id.0 as usize], *file_id)
         } else {
             panic!()
@@ -1153,7 +1170,7 @@ impl<'a> FromDeclRef<'a, Architecture> for Elaborator<'a> {
             file_id, ast_id, ..
         } = decl
         {
-            let ast = &self.sa.units[file_id.0 as usize];
+            let ast = &self.sa.asts[file_id.0 as usize];
             (&ast.architectures[ast_id.0 as usize], *file_id)
         } else {
             panic!()

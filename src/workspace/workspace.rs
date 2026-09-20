@@ -1,26 +1,28 @@
 use crate::{
-    analyzer::{DeclRef, ScopeId, SemanticAnalyzer, SymbolTable},
+    analyzer::SymbolTable,
     ast::AstArena,
-    elaborator::{Elaborator, LibraryRegistry},
+    elaborator::LibraryRegistry,
     parser::{ParseError, Parser},
-    printer::{FormatCtx, SAFormatCtx, VhdlEmitter},
+    printer::FormatCtx,
     workspace::{FileId, Workspace},
 };
 use std::fmt::Write;
 
 impl<'a> Workspace<'a> {
     pub fn new(paths: Vec<&'a str>, strings: Vec<&'a str>) -> Self {
+        let mut table = SymbolTable::new();
+        let registry = LibraryRegistry::initialize_builtins(&mut table.interner);
         Self {
-            table: SymbolTable::new(),
-            files: vec![],
+            asts: vec![],
             file_counter: 0,
             strings,
             paths,
-            registry: LibraryRegistry::new(),
+            registry,
+            table,
         }
     }
     pub fn get_file(&self, file_id: FileId) -> Option<&AstArena> {
-        self.files.get(file_id.0 as usize)
+        self.asts.get(file_id.0 as usize)
     }
     pub fn get_string(&self, file_id: FileId) -> Option<&&str> {
         self.strings.get(file_id.0 as usize)
@@ -42,7 +44,7 @@ impl<'a> Workspace<'a> {
                 return Err((file_id, parser.errors));
             }
             let arena = parser.arena;
-            self.files.push(arena);
+            self.asts.push(arena);
         }
         Ok(file_id)
     }
@@ -65,52 +67,5 @@ impl<'a> Workspace<'a> {
             println!("=== Parsed AST ===\n{}", ast_dump);
         }
         Ok(())
-    }
-    pub fn analyze(&mut self, top_entity: &str) -> Option<String>{
-        let registry = LibraryRegistry::initialize_builtins(&mut self.table.interner);
-        let s_ref = &mut self.table;
-        let asts = self.files.as_slice();
-
-        let mut sa = SemanticAnalyzer::new(asts, s_ref, &registry);
-        sa.analyze_all_entities(&registry);
-        sa.analyze_all_archs(&registry);
-        self.registry = registry;
-        if !sa.errors.is_empty() {
-            eprintln!(
-                "Semantic Analysis failed with {} error(s):",
-                // self.paths[i],
-                sa.errors.len()
-            );
-            for err in &sa.errors {
-                let i = err.file_id.0 as usize;
-                eprintln!(
-                    "  {}",
-                    SAFormatCtx {
-                        item: err,
-                        arena: &self.files[i],
-                        indent: 0,
-                        sa: &sa,
-                        path: self.paths[i],
-                        source: self.strings[i],
-                    }
-                );
-            }
-            return None;
-        }
-        let mut elaborator = Elaborator::new(&sa);
-
-        let top_instance = match elaborator.elaborate_all(&self.registry, top_entity) {
-            Ok(inst) => inst,
-            Err(err) => {
-                eprintln!("Elaboration Error: {:?}", err);
-                return None;
-            }
-        };
-
-        let elaborated_vhdl = VhdlEmitter::new(&sa, &elaborator.arena)
-            .emit_design(&top_instance)
-            .expect("Something went wrong with vhdl emitting");
-
-        Some(elaborated_vhdl)
     }
 }

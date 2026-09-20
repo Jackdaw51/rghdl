@@ -610,8 +610,7 @@ impl<'a> Parser<'a> {
                     actual: first_expr,
                 }
             };
-            self.print_expr(first_expr);
-            dbg!();
+            // self.print_expr(first_expr);
             self.arena.associations.push(assoc);
 
             if self.next_is(TokenKind::Comma) {

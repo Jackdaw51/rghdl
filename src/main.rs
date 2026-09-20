@@ -2,9 +2,13 @@
 
 use std::{env, fs};
 
+use crate::analyzer::{DeclRef, ScopeId, SemanticAnalyzer};
 use crate::ast::AstArena;
-use crate::printer::FormatCtx;
-use crate::validation::validation::run_ghdl_validation;
+use crate::elaborator::Elaborator;
+use crate::printer::{FormatCtx, SAFormatCtx, VhdlEmitter};
+use crate::validation::validation::{
+    generate_all_equivalence_testbenches, run_all_equivalence_testbenches,
+};
 use crate::workspace::Workspace;
 
 mod analyzer;
@@ -15,20 +19,28 @@ mod printer;
 mod validation;
 mod workspace;
 const TOP_E_NAME: &str = "full_adder";
+const FOLDER_NAME: &str = "velha_test_files";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
-    if args.len() >= 3 {
-        eprintln!("Maximum one top entity level name is expected");
-        return Ok(());
+
+    let a = args.iter().enumerate().find(|p| *p.1 == "--top");
+
+    let Some(b) = a else {
+        return Err("Please specify a top level entity using --top".into());
+    };
+    let file_names: Vec<&String> = args.iter().skip(1).take(b.0 - 1).collect();
+    let top_entity: Vec<&String> = args.iter().skip(b.0 + 1).collect();
+
+    if top_entity.len() > 1 {
+        return Err("Format is rghdl <file_names> --top <top_entity>".into());
     }
 
-    let top_entity_name = match args.get(1) {
-        Some(x) => x,
-        None => {
-            println!("Using default top entity name: {}", TOP_E_NAME);
-            TOP_E_NAME
-        }
+    let top_entity_name = if top_entity.len() == 0 {
+        println!("Using default top entity name: {}", TOP_E_NAME);
+        TOP_E_NAME
+    } else {
+        top_entity.first().unwrap()
     };
 
     // let path = "test_files/and_gate.vhd";
@@ -43,7 +55,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let source_string = fs::read_to_string("test_files/audio_testbench.vhd").expect("Not found");
     // let source_string = fs::read_to_string("test_files/sine_wave_440hz.vhd").expect("Not found");
 
-    let mut paths: Vec<&str> = vec![path_2, path_3];
+    let paths: Vec<String> = file_names
+        .iter()
+        .map(|f| format!("{FOLDER_NAME}/{}.vhd", f))
+        .collect();
+    let paths: Vec<&str> = paths.iter().map(|p| p.as_str()).collect();
+
     // paths = vec![path_2];
     let strings: Vec<String> = paths
         .iter()
@@ -52,7 +69,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let strings = strings.iter().map(|f| f.as_str()).collect();
 
     let mut workspace = Workspace::new(paths, strings);
-
     let file = match workspace.parse() {
         Ok(x) => x,
         Err(x) => {
@@ -74,24 +90,83 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     // workspace.print_ast()?;
-    let sa = workspace.analyze(top_entity_name);
-    let Some(elaborated_vhdl) = sa else {
-        return Ok(());
+    let mut sa = SemanticAnalyzer::new(&workspace.asts, &mut workspace.table, &workspace.registry);
+    match sa.analyze(&mut workspace.registry) {
+        Ok(_) => {}
+        Err(errors) => {
+            for err in &errors {
+                let i = err.file_id.0 as usize;
+                eprintln!(
+                    "  {}",
+                    SAFormatCtx {
+                        item: err,
+                        arena: &sa.asts[i],
+                        indent: 0,
+                        sa: &sa,
+                        path: workspace.paths[i],
+                        source: workspace.strings[i],
+                    }
+                );
+            }
+            return Err(format!(
+                "Semantic Analysis failed with {} error(s):",
+                // self.paths[i],
+                errors.len()
+            )
+            .into());
+        }
     };
+
+    let elaborator = Elaborator::new(&sa);
+
+    let mut elaborator = Elaborator::new(&sa);
+
+    let top_instance = match elaborator.elaborate_all(&workspace.registry, top_entity_name) {
+        Ok(inst) => inst,
+        Err(err) => {
+            eprintln!("Elaboration Error: {:?}", err);
+            return Ok(());
+        }
+    };
+
+    let elaborated_vhdl = VhdlEmitter::new(&sa, &elaborator.arena)
+        .emit_design(&top_instance)
+        .expect("Something went wrong with vhdl emitting");
+
     print!("=== Elaborated VHDL Output ===\n{}", elaborated_vhdl);
 
-    let flattened = format!("flattened/{}_flat.vhd", top_entity_name);
+    let top_e_sym = sa
+        .symbols
+        .interner
+        .get_symbol(top_entity_name)
+        .ok_or_else(|| "Provided top_entity_name was not found in the files".to_string())?;
 
-    let top_e = format!("{top_entity_name}_flat");
+    let top_e_decl = sa.symbols.lookup_local(ScopeId(0), top_e_sym);
 
+    let Some(DeclRef::Entity {
+        file_id,
+        entity_id,
+        scope_id,
+    }) = top_e_decl
+    else {
+        return Err(
+            "Provided top_entity_name was found but failed to be initialized correctly".into(),
+        );
+    };
+    let top_file = file_names[file_id.0 as usize];
+
+    let mut other_files = file_names.clone();
+    other_files.remove(file_id.0 as usize);
+
+    let flattened = format!("velha_test_files/{}_flat.vhd", top_entity_name);
+
+    let testbench = generate_all_equivalence_testbenches(&elaborator.arena, &sa, top_entity_name);
 
     fs::write(&flattened, &elaborated_vhdl)?;
-    run_ghdl_validation(&flattened, &top_e)?;
 
-    // let testbench = generate_all_equivalence_testbenches(&elaborator.arena, &sa);
-
-    // fs::write("velha_test_files/tb_equiv.vhd", &testbench)?;
-    // run_all_equivalence_testbenches(name, &sa)?;
+    let tb_path = format!("velha_test_files/tb_{}_equiv.vhd",top_entity_name);
+    fs::write(tb_path, &testbench)?;
+    run_all_equivalence_testbenches(top_entity_name, top_file,other_files)?;
     // // run_ghdl_validation(&flattened, top_entity_ast.name)?;
     // // run_ghdl_validation("test_files/tb_equiv.vhd", "and_gate")?;
 
