@@ -205,6 +205,7 @@ pub enum SequentialStmt {
 }
 
 #[derive(Debug, Clone)]
+/// formal ```(child_entity)``` => actual ```(the one I'm in)```
 pub struct Association {
     /// `Some(expr)` for named mapping (`A => sig`), `None` for positional mapping (`sig`)
     pub formal: Option<ExprId>,
@@ -332,7 +333,7 @@ impl GetThing<ArchitectureId, Architecture> for AstArena {
         &self.architectures[id.0 as usize]
     }
 }
-impl GetThing<EntityId,Entity> for AstArena{
+impl GetThing<EntityId, Entity> for AstArena {
     fn get_thing(&self, id: EntityId) -> &Entity {
         &self.entities[id.0 as usize]
     }

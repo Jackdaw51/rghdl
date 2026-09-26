@@ -23,8 +23,8 @@ impl<'a> Display for SAFormatCtx<'a, SemanticErrorKind> {
                 write!(
                     f,
                     "expected: {}, found: {}",
-                    self.child(self.sa.types.get(*expected).expect("Types not registered properly")),
-                    self.child(self.sa.types.get(*found).expect("Types not registered properly")),
+                    self.child(self.sa.types.get(*expected).unwrap_or(&TypeKind::Error)),
+                    self.child(self.sa.types.get(*found).unwrap_or(&TypeKind::Error)),
                 )
             }
             a => write!(f, "{:?}", a),
@@ -42,8 +42,10 @@ impl <'a> Display for SAFormatCtx<'a,TypeKind> {
             TypeKind::Record { name, fields } => name,
             TypeKind::Function { name, args, return_type } => name,
             TypeKind::Physical { name, primary_unit, units } => name,
-            TypeKind::Error => panic!(),
-        };
+            TypeKind::Error => {
+                write!(f,"type_error")?;
+                return Ok(());
+            }};
         write!(f,"{}",self.sa.symbols.interner.get(*name))
     }
 }

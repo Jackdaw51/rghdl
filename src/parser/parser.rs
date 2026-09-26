@@ -27,15 +27,16 @@ impl<'a> Parser<'a> {
             match next.kind {
                 TokenKind::KwEntity => {
                     let res = self.parse_entity();
-                    if res.is_err() {
-                        println!("{:?}", res);
+                    if let Err(x) = res {
+                        self.errors.push(x);
+                        self.fast_forward_to_semicolon()?;
                     }
                 }
                 TokenKind::KwArchitecture => {
                     let res = self.parse_architecture();
-                    match res {
-                        Ok(x) => {}
-                        Err(x) => {}
+                    if let Err(x) = res {
+                        self.errors.push(x);
+                        self.fast_forward_to_semicolon()?;
                     }
                 }
                 TokenKind::KwLibrary | TokenKind::KwUse => {
@@ -47,11 +48,12 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Eof => break,
                 x => {
-                    panic!(
-                        "There's something wrong in the parsing, check around {} at line {}.",
-                        self.get_text(next.span),
-                        self.lexer.get_current_line()
-                    )
+                    let x = ParseError {
+                        kind: ParseErrorKind::NotYetImplemented { token_kind: x },
+                        span: next.span,
+                    };
+                    self.errors.push(x.clone());
+                    return Err(x);
                     // Maybe doesn't account for all parsing error, so panics reporting what is wrong
                     // panics if semicolon on last port variable TODO
                 }
@@ -194,7 +196,8 @@ impl<'a> Parser<'a> {
                 mode,
                 port_type,
             };
-            self.arena.alloc_port(port,Span::new(start, self.lexer.current_pos));
+            self.arena
+                .alloc_port(port, Span::new(start, self.lexer.current_pos));
         }
 
         Ok(())

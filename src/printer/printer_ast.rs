@@ -5,7 +5,7 @@ use crate::ast::{
     AstArena, ConcurrentStmt, ContextItem, Decl, ElsifBranch, Entity, Expr, Port, PortId,
     SequentialStmt, UnaryOp,
 };
-use crate::parser::ParseError;
+use crate::parser::{ParseError, TokenKind};
 use crate::printer::FormatCtx;
 
 impl<'a> Display for FormatCtx<'a, ParseError> {
@@ -24,7 +24,11 @@ impl<'a> Display for FormatCtx<'a, ParseError> {
                     f,
                     "Expected one of '{}', found '{found}'",
                     valid_tokens.join(", "),
-                )
+                )?;
+                if found == TokenKind::Identifier {
+                    write!(f, " ''{}''\"", self.get_from_span(self.item.span))?;
+                }
+                Ok(())
             }
             crate::parser::ParseErrorKind::NameMismatch {
                 expected_symbol,
@@ -38,7 +42,12 @@ impl<'a> Display for FormatCtx<'a, ParseError> {
             crate::parser::ParseErrorKind::UnexpectedEof => {
                 write!(f, "Unexpected end of file")
             }
-            crate::parser::ParseErrorKind::InvalidArchQualifier => write!(f, "Arch qualifier can only be a single identifier"),
+            crate::parser::ParseErrorKind::InvalidArchQualifier => {
+                write!(f, "Arch qualifier can only be a single identifier")
+            }
+            crate::parser::ParseErrorKind::NotYetImplemented { token_kind } => {
+                write!(f, "Not yet implemented around {} at ", token_kind)
+            }
         }?;
         write!(f, " on line {}", self.get_line_from_span(self.item.span))
     }
@@ -111,9 +120,9 @@ impl<'a> Display for FormatCtx<'a, Expr> {
             Expr::CallOrIndex { callee, args } => {
                 write!(f, "{}", self.child(self.get_expr(*callee)))?;
                 write!(f, "(")?;
-                for (i,id) in self.arena.expressions(args.clone()).enumerate() {
+                for (i, id) in self.arena.expressions(args.clone()).enumerate() {
                     if i != 0 {
-                        write!(f,", ")?;
+                        write!(f, ", ")?;
                     }
                     write!(f, "{}", self.child(id))?;
                 }
@@ -403,8 +412,12 @@ impl<'a> Display for FormatCtx<'a, Decl> {
 impl<'a> Display for FormatCtx<'a, ContextItem> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.item {
-            ContextItem::Library { name, span: _ } => writeln!(f, "library {};", self.get_symbol(*name)),
-            ContextItem::Use { path, span: _} => writeln!(f, "use {};", self.child(self.get_expr(*path))),
+            ContextItem::Library { name, span: _ } => {
+                writeln!(f, "library {};", self.get_symbol(*name))
+            }
+            ContextItem::Use { path, span: _ } => {
+                writeln!(f, "use {};", self.child(self.get_expr(*path)))
+            }
         }
     }
 }

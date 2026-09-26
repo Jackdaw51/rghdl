@@ -11,7 +11,7 @@ mod environment;
 mod evaluated_value;
 
 use crate::analyzer::{SemanticAnalyzer, SymbolId, TypeId};
-use crate::ast::{AstArena, BinaryOp, PortId, PortMode, UnaryOp};
+use crate::ast::{AstArena, BinaryOp, GetSpan, PortId, PortMode, UnaryOp};
 use crate::workspace::FileId;
 use std::collections::HashMap;
 use std::error::Error;
@@ -42,6 +42,7 @@ impl EvaluatedValue {
             other => Err(ElaboratorError::EvaluationFailed {
                 reason: format!("Expected integer expression, found {:?}", other),
                 span: Span { start: 0, end: 0 },
+                file_id: FileId(0), //TODO
             }),
         }
     }
@@ -68,7 +69,11 @@ pub struct ElaboratedSignal {
     pub type_id: TypeId,
     pub high_bound: i64,
     pub low_bound: i64,
-    pub driver_count: usize, // 14.7.3
+    /// a driver for a physical signal can originate from three sources:
+    /// * Concurrent signal assignment
+    /// * Processes
+    /// * An out or inout of a child component, creates a driver on that signal
+    pub driver_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +150,14 @@ pub struct ElaboratedArena {
     pub signals: Vec<ElaboratedSignal>,
     pub processes: Vec<ElaboratedProcess>,
     pub instances: Vec<InstanceNode>,
+    signals_span: Vec<Span>,
+}
+
+impl GetSpan<SignalId> for ElaboratedArena {
+    #[inline]
+    fn span(&self, id: SignalId) -> Span {
+        self.signals_span[id.0 as usize]
+    }
 }
 
 impl ElaboratedArena {
@@ -154,9 +167,10 @@ impl ElaboratedArena {
         id
     }
 
-    pub fn alloc_signal(&mut self, sig: ElaboratedSignal) -> SignalId {
+    pub fn alloc_signal(&mut self, sig: ElaboratedSignal, span: Span) -> SignalId {
         let id = SignalId(self.signals.len() as u32);
         self.signals.push(sig);
+        self.signals_span.push(span);
         id
     }
 }
@@ -171,7 +185,7 @@ pub struct Elaborator<'a> {
     /// Counter to generate unique hierarchical names if needed
     instance_counter: u32,
 
-    file_id: FileId
+    file_id: FileId,
 }
 
 use crate::parser::Span;
@@ -188,6 +202,7 @@ pub enum ElaboratorError {
     EvaluationFailed {
         reason: String,
         span: Span,
+        file_id: FileId,
     },
 
     /// Tried to map a port or signal incorrectly (e.g., width mismatch).
@@ -204,7 +219,7 @@ pub enum ElaboratorError {
     SignalNotFound(String),
     SymbolNotFound(String),
     NotAnEntity,
-    NoMatchingArchitectures,
+    NoMatchingArchitectures(SymbolId),
 }
 
 // Environment

@@ -8,6 +8,7 @@ use crate::analyzer::{SemanticAnalyzer, SemanticError, SymbolId, SymbolInterner}
 use crate::ast::{AstArena, Expr, ExprId};
 use crate::elaborator::ElaboratedArena;
 use crate::parser::Span;
+use crate::workspace::FileId;
 pub struct FormatCtx<'a, T> {
     pub item: &'a T,
     pub source: &'a str,
@@ -39,6 +40,9 @@ impl<'a, T> FormatCtx<'a, T> {
     }
     fn pad(&self) -> String {
         "\t".repeat(self.indent)
+    }
+    fn get_from_span(&self, s: Span) -> &'a str {
+        &self.source[s.start..s.end]
     }
     fn get_expr(&self, expr_id: ExprId) -> &Expr {
         &self.arena.exprs[expr_id.0 as usize]
@@ -76,6 +80,8 @@ pub struct ElaboratedFormatCtx<'a, T> {
     pub arena: &'a ElaboratedArena,
     pub sa: &'a SemanticAnalyzer<'a>,
     pub indent: usize,
+    pub(crate) path: &'a Vec<&'a str>,
+    pub(crate) source: &'a Vec<&'a str>,
 }
 
 impl<'a, T> ElaboratedFormatCtx<'a, T> {
@@ -86,6 +92,8 @@ impl<'a, T> ElaboratedFormatCtx<'a, T> {
             arena: self.arena,
             sa: self.sa,
             indent: self.indent,
+            path: self.path,
+            source: self.source,
         }
     }
 
@@ -96,6 +104,8 @@ impl<'a, T> ElaboratedFormatCtx<'a, T> {
             arena: self.arena,
             sa: self.sa,
             indent: self.indent + 1,
+            path: self.path,
+            source: self.source,
         }
     }
 
@@ -106,6 +116,24 @@ impl<'a, T> ElaboratedFormatCtx<'a, T> {
     /// Resolves a SymbolId to its String representation
     pub fn sym(&self, id: SymbolId) -> &str {
         &self.sa.symbols.interner.vec[id.0 as usize]
+    }
+    fn get_position(&self, span: Span, file: FileId) -> String {
+        let sa = self.source[file.0 as usize];
+        let mut line = 1;
+        let mut s = String::new();
+        let mut local = 0;
+        for (c, i) in sa.as_bytes().iter().enumerate() {
+            local += 1;
+            if *i as char == '\n' {
+                line += 1;
+                local = 0;
+            }
+            if c == span.start {
+                s = format!("{}:{}", line, local);
+                break;
+            }
+        }
+        s
     }
 }
 

@@ -5,7 +5,7 @@ use std::{env, fs};
 use crate::analyzer::{DeclRef, ScopeId, SemanticAnalyzer};
 use crate::ast::AstArena;
 use crate::elaborator::Elaborator;
-use crate::printer::{FormatCtx, SAFormatCtx, VhdlEmitter};
+use crate::printer::{ElaboratedFormatCtx, FormatCtx, SAFormatCtx, VhdlEmitter};
 use crate::validation::validation::{
     generate_all_equivalence_testbenches, run_all_equivalence_testbenches,
 };
@@ -121,10 +121,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut elaborator = Elaborator::new(&sa);
 
-    let top_instance = match elaborator.elaborate_all(&workspace.registry, top_entity_name) {
+    let top_instance = match elaborator.elaborate_top(&workspace.registry, top_entity_name) {
         Ok(inst) => inst,
         Err(err) => {
-            eprintln!("Elaboration Error: {:?}", err);
+            eprintln!(
+                "Elaboration Error: {}",
+                ElaboratedFormatCtx {
+                    item: &err,
+                    arena: &elaborator.arena,
+                    sa: &sa,
+                    indent: 0,
+                    path: &workspace.paths,
+                    source: &workspace.strings,
+                }
+            );
             return Ok(());
         }
     };
@@ -164,9 +174,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     fs::write(&flattened, &elaborated_vhdl)?;
 
-    let tb_path = format!("velha_test_files/tb_{}_equiv.vhd",top_entity_name);
+    let tb_path = format!("velha_test_files/tb_{}_equiv.vhd", top_entity_name);
     fs::write(tb_path, &testbench)?;
-    run_all_equivalence_testbenches(top_entity_name, top_file,other_files)?;
+    run_all_equivalence_testbenches(top_entity_name, top_file, other_files)?;
     // // run_ghdl_validation(&flattened, top_entity_ast.name)?;
     // // run_ghdl_validation("test_files/tb_equiv.vhd", "and_gate")?;
 

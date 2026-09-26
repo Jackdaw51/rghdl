@@ -1,6 +1,14 @@
-use std::{fmt::Display, iter::Peekable, ops::{Deref, Range}, str::Chars};
+use std::{
+    fmt::Display,
+    iter::Peekable,
+    ops::{Deref, Range},
+    str::Chars,
+};
 
-use crate::{analyzer::{SymbolId, SymbolInterner}, ast::AstArena};
+use crate::{
+    analyzer::{SymbolId, SymbolInterner},
+    ast::AstArena,
+};
 mod architecture;
 mod entity;
 mod expressions;
@@ -20,9 +28,12 @@ pub struct Span {
     pub start: usize,
     pub end: usize,
 }
-impl Span{
-    pub fn from(range: &Range<u32>) -> Self{
-        Self { start: range.start as usize, end: range.end as usize }
+impl Span {
+    pub fn from(range: &Range<u32>) -> Self {
+        Self {
+            start: range.start as usize,
+            end: range.end as usize,
+        }
     }
 }
 
@@ -87,13 +98,13 @@ pub enum TokenKind {
     OpStar,              // *
     OpSlash,             // /
     OpConcat,
-    Colon,               // :
-    Semicolon,           // ;
-    Comma,               // ,
-    Dot,                 // .
-    Tick,                // '
-    LParen,              // (
-    RParen,              // )
+    Colon,     // :
+    Semicolon, // ;
+    Comma,     // ,
+    Dot,       // .
+    Tick,      // '
+    LParen,    // (
+    RParen,    // )
 
     Eof,
     Error,
@@ -137,7 +148,7 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("nor", TokenKind::KwNor),
     ("abs", TokenKind::KwAbs),
     ("map", TokenKind::KwMap),
-    ("after",TokenKind::KwAfter)
+    ("after", TokenKind::KwAfter),
 ];
 impl Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -318,4 +329,7 @@ pub enum ParseErrorKind {
     },
     UnexpectedEof,
     InvalidArchQualifier,
+    NotYetImplemented {
+        token_kind: TokenKind
+    },
 }

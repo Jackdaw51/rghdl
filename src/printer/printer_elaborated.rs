@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::analyzer::{DeclRef, ScopeId, SymbolId};
+use crate::elaborator::ElaboratorError;
 use crate::printer::FormatCtx;
 use crate::{
     analyzer::{SemanticAnalyzer, TypeKind},
@@ -335,6 +336,36 @@ impl<'a> Display for ElaboratedFormatCtx<'a, TypeKind> {
         }
     }
 }
+impl<'a> Display for ElaboratedFormatCtx<'a, ElaboratorError> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.item {
+            ElaboratorError::EntityNotFound(_) => todo!(),
+            ElaboratorError::ArchitectureNotFound(symbol_id) => todo!(),
+            ElaboratorError::EvaluationFailed {
+                reason,
+                span,
+                file_id,
+            } => {
+                write!(
+                    f,
+                    "Evaluation failed: {reason}, at {}:{}",
+                    self.path[file_id.0 as usize],
+                    self.get_position(*span, *file_id)
+                )
+            }
+            ElaboratorError::BindingError { reason, span } => todo!(),
+            ElaboratorError::NotYetImplemented { feature, span } => todo!(),
+            ElaboratorError::SignalNotFound(_) => todo!(),
+            ElaboratorError::SymbolNotFound(_) => todo!(),
+            ElaboratorError::NotAnEntity => todo!(),
+            ElaboratorError::NoMatchingArchitectures(symbol_id) => write!(
+                f,
+                "Matching architecture not found for entity '{}'",
+                self.sa.get_str(*symbol_id)
+            ),
+        }
+    }
+}
 
 impl fmt::Display for PortMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -440,6 +471,8 @@ impl<'a> VhdlEmitter<'a> {
                     arena: self.arena,
                     sa: self.sa,
                     indent: 0,
+                    path: &vec![],
+                    source: &vec![],
                 };
                 writeln!(
                     out,
@@ -469,6 +502,8 @@ impl<'a> VhdlEmitter<'a> {
                 arena: self.arena,
                 sa: self.sa,
                 indent: 0,
+                path: &vec![],
+                source: &vec![],
             };
             writeln!(
                 out,
@@ -486,6 +521,8 @@ impl<'a> VhdlEmitter<'a> {
                 arena: self.arena,
                 sa: self.sa,
                 indent: 1,
+                path: &vec![],
+                source: &vec![],
             };
             write!(out, "{}", fm)?;
         }
@@ -497,6 +534,8 @@ impl<'a> VhdlEmitter<'a> {
                 arena: self.arena,
                 sa: self.sa,
                 indent: 1,
+                path: &vec![],
+                source: &vec![],
             };
             write!(out, "{}", fm)?;
         }

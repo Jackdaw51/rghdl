@@ -138,7 +138,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
             }
         }
 
-        if parts.len() < 2 {
+        if parts.len() <= 2 {
             self.errors.push(SemanticError::new(
                 SemanticErrorKind::MalformedUseClause(path),
                 span,
@@ -150,7 +150,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
         let lib_name = parts[0];
         let pkg_name = parts[1];
-        let selector = parts.get(2).copied().unwrap_or("all");
+        let selector = parts[2];
 
         let pkg = match registry.get_package(lib_name, pkg_name) {
             Some(p) => p,

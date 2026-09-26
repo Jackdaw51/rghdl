@@ -1,5 +1,10 @@
 use crate::{
-    analyzer::{SymbolId, SymbolInterner, TypeKind}, ast::PortId, elaborator::{ComponentSignature, ElaboratorError, Environment, EvaluatedValue, Library, LibraryRegistry, Package, SignalId},
+    analyzer::{SymbolId, SymbolInterner, TypeKind},
+    ast::PortId,
+    elaborator::{
+        ComponentSignature, ElaboratorError, Environment, EvaluatedValue, Library, LibraryRegistry,
+        Package, SignalId,
+    },
 };
 
 impl Environment {
@@ -100,6 +105,12 @@ impl LibraryRegistry {
         let sym_int = interner.get_or_internalize("integer");
         let type_int = registry.types.alloc(TypeKind::Integer { name: sym_int });
         standard_pkg.add_type("integer", sym_int, type_int);
+
+        let sym_positive = interner.get_or_internalize("positive");
+        let type_positive = registry
+            .types
+            .alloc(TypeKind::Integer { name: sym_positive });
+        standard_pkg.add_type("positive", sym_positive, type_positive);
 
         // Register real
         let sym_real = interner.get_or_internalize("real");
