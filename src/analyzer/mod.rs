@@ -61,6 +61,7 @@ pub enum SemanticErrorKind {
     NonExistingSymbolInPackage(SymbolId),
     PositionalPortAssociationOutOfBounds,
     EntitySpecifiedNotFound,
+    HasToBeIntegerOrDerived
 }
 
 #[derive(Debug, Clone)]
@@ -140,6 +141,9 @@ pub enum DeclRef {
         type_id: TypeId,
         mode: PortMode,
     },
+    Generate{
+        scope_id: ScopeId
+    },
     Signal {
         id: DeclId,
         type_id: TypeId,
@@ -157,6 +161,7 @@ pub enum DeclRef {
     },
     Type(TypeId),
     Function(TypeId),
+    Implicit(TypeId),
     Instance {
         name: SymbolId,
     },

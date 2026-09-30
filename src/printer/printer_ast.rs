@@ -48,8 +48,19 @@ impl<'a> Display for FormatCtx<'a, ParseError> {
             crate::parser::ParseErrorKind::NotYetImplemented { token_kind } => {
                 write!(f, "Not yet implemented around {} at ", token_kind)
             }
+            crate::parser::ParseErrorKind::GenerateCantBeLabelLess => {
+                write!(f, "A generate statement must have a label")
+            }
+            crate::parser::ParseErrorKind::DirectEntityInstCantBeLabelLess => {
+                write!(f, "A direct entity instantiation statement must have a label")
+            }
         }?;
-        write!(f, " on line {}", self.get_line_from_span(self.item.span))
+        write!(
+            f,
+            " in  {}:{}",
+            self.path,
+            self.get_position(self.item.span)
+        )
     }
 }
 
@@ -243,6 +254,19 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt> {
                 writeln!(f, "{}end process;", self.pad())?;
                 Ok(())
             }
+            ConcurrentStmt::ForGenerate {
+                label,
+                iterator,
+                range_left,
+                range_right: range_rigth,
+                direction,
+                stmts,
+            } => todo!(),
+            ConcurrentStmt::IfGenerate {
+                label,
+                condition,
+                stmts,
+            } => todo!(),
         }
     }
 }

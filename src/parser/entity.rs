@@ -16,28 +16,7 @@ impl<'a> Parser<'a> {
         let (generics_start, generics_end) = self.parse_generic_clause()?;
         let (ports_start, ports_end) = self.parse_port_clause()?;
 
-        self.expect(TokenKind::KwEnd)?;
-
-        // VHDL allows end [entity] [my_entity];
-        if self.lexer.peek().kind == TokenKind::KwEntity {
-            self.advance();
-        }
-
-        if self.next_is(TokenKind::Identifier) {
-            let t = self.advance();
-            let found = self.intern(t.span);
-            if found != entity_name {
-                return self.err(
-                    ParseErrorKind::NameMismatch {
-                        expected_symbol: entity_name,
-                        found_symbol: found,
-                    },
-                    t.span,
-                );
-            }
-        }
-
-        self.expect(TokenKind::Semicolon)?;
+        self.end_optional_label_block(entity_name, TokenKind::KwEntity)?;
 
         let end = self.arena.contexts.len() as u32;
         let start = end - self.arena.pending_contexts;

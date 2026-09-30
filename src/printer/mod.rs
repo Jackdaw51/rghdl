@@ -12,6 +12,7 @@ use crate::workspace::FileId;
 pub struct FormatCtx<'a, T> {
     pub item: &'a T,
     pub source: &'a str,
+    pub path: &'a str,
     pub symbols: &'a SymbolInterner,
     pub arena: &'a AstArena,
     pub indent: usize,
@@ -27,6 +28,7 @@ impl<'a, T> FormatCtx<'a, T> {
             indent: self.indent,
             symbols: self.symbols,
             source: self.source,
+            path: self.path,
         }
     }
     fn child_indented<U>(&self, item: &'a U) -> FormatCtx<'a, U> {
@@ -36,6 +38,7 @@ impl<'a, T> FormatCtx<'a, T> {
             indent: self.indent + 1,
             symbols: self.symbols,
             source: self.source,
+            path: self.path
         }
     }
     fn pad(&self) -> String {
@@ -60,6 +63,23 @@ impl<'a, T> FormatCtx<'a, T> {
         }
 
         line
+    }
+    fn get_position(&self, span: Span) -> String {
+        let mut line = 1;
+        let mut s = String::new();
+        let mut local = 0;
+        for (c, i) in self.source.as_bytes().iter().enumerate() {
+            local += 1;
+            if *i as char == '\n' {
+                line += 1;
+                local = 0;
+            }
+            if c == span.start {
+                s = format!("{}:{}", line, local);
+                break;
+            }
+        }
+        s
     }
 
     // let stmt_ctx = FormatCtx {

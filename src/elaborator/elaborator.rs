@@ -199,6 +199,8 @@ impl<'a> Elaborator<'a> {
                     )?;
                     children.push(child_id);
                 }
+                ConcurrentStmt::ForGenerate { label, iterator, range_left, range_right, direction, stmts } => todo!(),
+                ConcurrentStmt::IfGenerate { label, condition, stmts } => todo!(),
             }
         }
 
@@ -690,22 +692,51 @@ impl<'a> Elaborator<'a> {
             })?;
 
             let formal_sym = formal_port.name;
-            let actual_sig = self.resolve_expr_signal(assoc.actual, parent_env)?;
 
+            // Need to iter and find because named associations can be done in any order
+
+            let formal_elab_port = self.arena.instances[child_id.0 as usize]
+                .ports
+                .iter()
+                .find(|p| p.name == formal_sym)
+                .ok_or_else(|| ElaboratorError::BindingError {
+                    reason: format!(
+                        "Elaborated port '{}' missing on instance node",
+                        self.get_str(formal_port.name)
+                    ),
+                    span: assoc_ast.span(assoc.actual),
+                })?;
+            let formal_width = formal_elab_port.width();
+
+            let actual_sig_id = self.resolve_expr_signal(assoc.actual, parent_env)?;
+            let actual_sig = &mut self.arena.signals[actual_sig_id.0 as usize];
+            let actual_width = actual_sig.width();
+            if formal_width != actual_width {
+                let formal_port_name = self.sa.get_str(formal_port.name);
+                let actual_sig_name = self.sa.get_str(actual_sig.name);
+                return Err(ElaboratorError::BindingError {
+                    reason: format!(
+                        "Width mismatch on port map: formal '{}' expects {} bits, but actual signal '{}' provides {} bits",
+                        formal_port_name, formal_width, actual_sig_name, actual_width
+                    ),
+                    span: ast.span(comp_name),
+                });
+            }
             // adjusts driver count to parent signal if child has a driving port_mode
             if matches!(
                 formal_port.mode,
                 PortMode::Out | PortMode::InOut | PortMode::Buffer
             ) {
-                self.arena.signals[actual_sig.0 as usize].driver_count += 1;
+                actual_sig.driver_count += 1;
             }
 
             // Attach resolved physical signal to child instance node
-            let child_node = &mut self.arena.instances[child_id.0 as usize];
-            child_node.port_bindings.push(PortBinding {
-                port_name: formal_sym,
-                actual_signal: actual_sig,
-            });
+            self.arena.instances[child_id.0 as usize]
+                .port_bindings
+                .push(PortBinding {
+                    port_name: formal_sym,
+                    actual_signal: actual_sig_id,
+                });
         }
 
         Ok(child_id)
@@ -718,6 +749,7 @@ impl<'a> Elaborator<'a> {
             symbols: &self.sa.symbols.interner,
             arena: ast,
             indent: 0,
+            path: "",
         };
         println!("{f}");
     }
@@ -1011,18 +1043,111 @@ impl<'a> Elaborator<'a> {
         Ok(self.arena.alloc_expr(lowered))
     }
 
-    /// Given the expr_id and environment, it returns the signal
-    fn resolve_expr_signal(
+    // /// Given the expr_id and environment, it returns the signal
+    // fn resolve_expr_signal(
+    //     &self,
+    //     expr_id: crate::ast::ExprId,
+    //     env: &Environment,
+    // ) -> Result<SignalId, ElaboratorError> {
+    //     let sym = self.resolve_expr_symbol(expr_id)?;
+    //     let a = env.lookup_signal(sym).ok_or_else(|| {
+    //         dbg!("here2");
+    //         ElaboratorError::SignalNotFound(self.get_str(sym).to_string())
+    //     });
+    //     a
+    // }
+    pub fn resolve_expr_signal(
         &self,
         expr_id: crate::ast::ExprId,
         env: &Environment,
     ) -> Result<SignalId, ElaboratorError> {
-        let sym = self.resolve_expr_symbol(expr_id)?;
-        let a = env.lookup_signal(sym).ok_or_else(|| {
-            dbg!("here2");
-            ElaboratorError::SignalNotFound(self.get_str(sym).to_string())
-        });
-        a
+        let ast = self.sa.get_ast(self.file_id);
+        let expr = &ast.exprs[expr_id.0 as usize];
+
+        match expr {
+            Expr::Identifier { name } => env.lookup_signal(*name).ok_or_else(|| {
+                dbg!("here2");
+                ElaboratorError::SignalNotFound(self.get_str(*name).to_string())
+            }),
+
+            Expr::CallOrIndex { callee, args } => {
+                let sig_id = self.resolve_expr_signal(*callee, env)?;
+                let sig = &self.arena.signals[sig_id.0 as usize];
+
+                // Statically evaluate the index expression
+                if args.is_empty() {
+                    return Err(ElaboratorError::EvaluationFailed {
+                        reason: "Index expression cannot be empty".to_string(),
+                        span: ast.span(expr_id),
+                        file_id: self.file_id,
+                    });
+                }
+
+                let index_expr_id = crate::ast::ExprId(args.start);
+                let index_val = self.eval_const_expr(index_expr_id, env)?;
+                let EvaluatedValue::Integer(a) = index_val else {
+                    panic!();
+                };
+
+                // Perform static bound checking
+                if !sig.contains_index(a) {
+                    let sig_name = self.sa.get_str(sig.name);
+                    return Err(ElaboratorError::EvaluationFailed {
+                        reason: format!(
+                            "Index {} out of bounds for signal '{}' range [{}..{}]",
+                            index_val, sig_name, sig.low_bound, sig.high_bound
+                        ),
+                        span: ast.span(expr_id),
+                        file_id: self.file_id,
+                    });
+                }
+
+                Ok(sig_id)
+            }
+
+            Expr::Slice {
+                target,
+                left,
+                right,
+                direction,
+            } => {
+                let sig_id = self.resolve_expr_signal(*target, env)?;
+                let sig = &self.arena.signals[sig_id.0 as usize];
+
+                let left_val = self.eval_const_expr(*left, env)?;
+                let EvaluatedValue::Integer(l_val) = left_val else {
+                    panic!()
+                };
+                let right_val = self.eval_const_expr(*right, env)?;
+                let EvaluatedValue::Integer(r_val) = right_val else {
+                    panic!()
+                };
+
+                let slice_low = l_val.min(r_val);
+                let slice_high = r_val.max(r_val);
+
+                // Perform static sub-range bound checking
+                if !sig.contains_range(slice_low, slice_high) {
+                    let sig_name = self.sa.get_str(sig.name);
+                    return Err(ElaboratorError::EvaluationFailed {
+                        reason: format!(
+                            "Slice range [{}..{}] falls outside signal '{}' range [{}..{}]",
+                            slice_low, slice_high, sig_name, sig.low_bound, sig.high_bound
+                        ),
+                        span: ast.span(expr_id),
+                        file_id: self.file_id,
+                    });
+                }
+
+                Ok(sig_id)
+            }
+
+            _ => Err(ElaboratorError::EvaluationFailed {
+                reason: format!("Cannot resolve expression {:?} to a physical signal", expr),
+                span: ast.span(expr_id),
+                file_id: self.file_id,
+            }),
+        }
     }
 
     /// Returns the symbol of the identifier corresponding to expr_id

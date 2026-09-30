@@ -82,8 +82,9 @@ pub enum TokenKind {
     KwAbs,
     KwMap,
     KwAfter,
+    KwFor,
+    KwGenerate,
 
-    // TODO * and /
     OpAssign,            // :=
     OpArrow,             // => (Port mapping)
     OpSignalAssignOrLEq, // <= Signal assignment or less equal
@@ -149,6 +150,8 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("abs", TokenKind::KwAbs),
     ("map", TokenKind::KwMap),
     ("after", TokenKind::KwAfter),
+    ("for", TokenKind::KwFor),
+    ("generate", TokenKind::KwGenerate)
 ];
 impl Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -222,6 +225,8 @@ impl Display for TokenKind {
             TokenKind::Error => "<ERROR>",
             TokenKind::OpConcat => "&",
             TokenKind::KwAfter => "after",
+            TokenKind::KwFor => "for",
+            TokenKind::KwGenerate => "generate",
         };
         write!(f, "{}", s)
     }
@@ -329,6 +334,8 @@ pub enum ParseErrorKind {
     },
     UnexpectedEof,
     InvalidArchQualifier,
+    GenerateCantBeLabelLess,
+    DirectEntityInstCantBeLabelLess,
     NotYetImplemented {
         token_kind: TokenKind
     },

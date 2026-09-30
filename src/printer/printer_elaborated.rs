@@ -208,7 +208,8 @@ impl<'a> Display for ElaboratedFormatCtx<'a, InstanceNode> {
                         source: "",
                         symbols: &self.sa.symbols.interner,
                         arena: ast,
-                        indent: self.indent
+                        indent: self.indent,
+                        path: ""
                     }
                 )?,
             }
@@ -431,6 +432,7 @@ impl<'a> VhdlEmitter<'a> {
                                 symbols: &self.sa.symbols.interner,
                                 arena: ast,
                                 indent: 0,
+                                path: ""
                             }
                         )?;
                     }

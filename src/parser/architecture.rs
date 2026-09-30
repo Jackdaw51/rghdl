@@ -77,7 +77,51 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::KwBegin)?;
 
         let mut local_conc_ids = Vec::new();
+        self.parse_conc_stmts_till_end(&mut local_conc_ids);
 
+        let stmts_start = self.arena.conc_stmt_lists.len() as u32;
+        self.arena.conc_stmt_lists.extend(local_conc_ids);
+        let stmts_end = self.arena.conc_stmt_lists.len() as u32;
+        self.end_optional_label_block(arch_name, TokenKind::KwArchitecture)?;
+        let arch = Architecture {
+            name: arch_name,
+            span: arch_name_tok.span,
+            entity_name,
+            decls_start: DeclId(decls_start),
+            decls_end: DeclId(decls_end),
+            stmts: stmts_start..stmts_end,
+        };
+        Ok(self.arena.alloc_architecture(arch))
+    }
+
+    pub(super) fn end_optional_label_block(
+        &mut self,
+        block_name: SymbolId,
+        token_kind: TokenKind,
+    ) -> Result<(), ParseError> {
+        self.expect(TokenKind::KwEnd)?;
+        if self.next_is(token_kind) {
+            self.advance();
+        }
+        if self.next_is(TokenKind::Identifier) {
+            let t = self.advance();
+            let end_name = self.intern(t.span);
+
+            if end_name != block_name {
+                return self.err(
+                    ParseErrorKind::NameMismatch {
+                        expected_symbol: block_name,
+                        found_symbol: end_name,
+                    },
+                    t.span,
+                );
+            };
+        }
+        self.expect(TokenKind::Semicolon)?;
+        Ok(())
+    }
+
+    fn parse_conc_stmts_till_end(&mut self, local_conc_ids: &mut Vec<crate::ast::ConcStmtId>) {
         while !self.next_is(TokenKind::KwEnd) {
             let start = self.lexer.current_pos;
             match self.parse_concurrent_statement() {
@@ -92,42 +136,6 @@ impl<'a> Parser<'a> {
                 }
             };
         }
-
-        let stmts_start = self.arena.conc_stmt_lists.len() as u32;
-        self.arena.conc_stmt_lists.extend(local_conc_ids);
-        let stmts_end = self.arena.conc_stmt_lists.len() as u32;
-        self.expect(TokenKind::KwEnd)?;
-
-        //same with entity, possible are "end [architecture] [my_architecture]";
-
-        if self.next_is(TokenKind::KwArchitecture) {
-            self.advance();
-        }
-
-        if self.next_is(TokenKind::Identifier) {
-            let t = self.advance();
-            let end_name = self.intern(t.span);
-
-            if end_name != arch_name {
-                return self.err(
-                    ParseErrorKind::NameMismatch {
-                        expected_symbol: arch_name,
-                        found_symbol: end_name,
-                    },
-                    t.span,
-                );
-            };
-        }
-        self.expect(TokenKind::Semicolon)?;
-        let arch = Architecture {
-            name: arch_name,
-            span: arch_name_tok.span,
-            entity_name,
-            decls_start: DeclId(decls_start),
-            decls_end: DeclId(decls_end),
-            stmts: stmts_start..stmts_end,
-        };
-        Ok(self.arena.alloc_architecture(arch))
     }
     fn parse_architecture_declaration(&mut self) -> ParseResult<()> {
         let start_tok = self.advance();
@@ -160,16 +168,40 @@ impl<'a> Parser<'a> {
             let label_tok = self.advance();
             self.advance(); //colon
             label = Some(self.intern(label_tok.span));
-            // label : process
-            if self.next_is(TokenKind::KwProcess) {
-                self.advance();
-                return self.parse_process(label);
+            match self.lexer.peek().kind {
+                TokenKind::KwProcess => {
+                    self.advance();
+                    return self.parse_process(label);
+                }
+                TokenKind::KwEntity => {
+                    return self.parse_direct_entity_instantiation(label);
+                }
+                TokenKind::KwFor => {
+                    return self.parse_for_generate(label.unwrap());
+                }
+                TokenKind::KwIf => {
+                    return self.parse_if_generate(label.unwrap());
+                }
+                x => {
+                    if x != TokenKind::Identifier {
+                        let span = self.advance().span;
+                        return self.err(
+                            ParseErrorKind::ExpectedToken {
+                                expected: TokenKind::Identifier,
+                                found: x,
+                            },
+                            span,
+                        );
+                    }
+                }
             }
-
-            // u0: entity work.gate
-            if self.next_is(TokenKind::KwEntity) {
-                return self.parse_direct_entity_instantiation(label);
-            }
+        }
+        let next = self.lexer.peek();
+        if matches!(next.kind, TokenKind::KwFor | TokenKind::KwIf) {
+            return self.err(ParseErrorKind::GenerateCantBeLabelLess, next.span);
+        }
+        if matches!(next.kind, TokenKind::KwEntity) {
+            return self.err(ParseErrorKind::DirectEntityInstCantBeLabelLess, next.span);
         }
 
         let target_expr = self.parse_target_expression()?;
@@ -200,7 +232,6 @@ impl<'a> Parser<'a> {
             TokenKind::KwPort | TokenKind::KwGeneric => {
                 self.parse_component_instantiation_body(target_expr, next_tok, label)
             }
-
             x => exp_tks!(
                 x,
                 next_tok.span,
@@ -343,33 +374,14 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::KwEnd)?; //end
 
         // Handle optional "end process;" or "end process label;"
-        if self.next_is(TokenKind::KwProcess) {
+        if let Some(lbl) = label {
+            self.end_optional_label_block(lbl, TokenKind::KwProcess)?;
+        }
+        else if self.next_is(TokenKind::KwProcess) {
             self.advance();
         }
-
-        let mut l = None;
-
-        if let Some(lbl) = label {
-            if self.next_is(TokenKind::Identifier) {
-                let t = self.advance();
-                let found = self.intern(t.span);
-                if found != lbl {
-                    return self.err(
-                        ParseErrorKind::NameMismatch {
-                            expected_symbol: lbl,
-                            found_symbol: found,
-                        },
-                        t.span,
-                    );
-                }
-            }
-            l = Some(lbl);
-        }
-
-        self.expect(TokenKind::Semicolon)?;
-
         Ok(ConcurrentStmt::Process {
-            label: l,
+            label,
             stmts,
             sens_list,
         })
@@ -670,7 +682,72 @@ impl<'a> Parser<'a> {
             symbols: self.interner,
             arena: &self.arena,
             indent: 0,
+            path: "",
         };
         println!("{f}");
+    }
+
+    fn parse_for_generate(
+        &mut self,
+        label: SymbolId,
+    ) -> Result<crate::ast::ConcurrentStmt, ParseError> {
+        self.expect(TokenKind::KwFor)?;
+        let t = self.expect(TokenKind::Identifier)?;
+        let iterator = self.intern(t.span);
+        self.expect(TokenKind::KwIn)?;
+        let range_left = self.parse_expression()?;
+        let direction = self.advance();
+        if !matches!(direction.kind, TokenKind::KwDownto | TokenKind::KwTo) {
+            exp_tks!(
+                direction.kind,
+                direction.span,
+                TokenKind::KwDownto,
+                TokenKind::KwTo
+            )
+        }
+        let range_right = self.parse_expression()?;
+        self.expect(TokenKind::KwGenerate)?;
+
+        let mut local_conc_ids = vec![];
+        self.parse_conc_stmts_till_end(&mut local_conc_ids);
+
+        let stmts = self.alloc_stmt_list(local_conc_ids);
+        self.end_optional_label_block(label, TokenKind::KwGenerate)?;
+
+        Ok(ConcurrentStmt::ForGenerate {
+            label,
+            iterator,
+            range_left,
+            range_right,
+            direction: direction.kind,
+            stmts,
+        })
+    }
+
+    fn alloc_stmt_list(&mut self, local_conc_ids: Vec<crate::ast::ConcStmtId>) -> Range<u32> {
+        let stmts_start = self.arena.conc_stmt_lists.len() as u32;
+        self.arena.conc_stmt_lists.extend(local_conc_ids);
+        let stmts_end = self.arena.conc_stmt_lists.len() as u32;
+        Range {
+            start: stmts_start,
+            end: stmts_end,
+        }
+    }
+
+    fn parse_if_generate(
+        &mut self,
+        label: SymbolId,
+    ) -> Result<crate::ast::ConcurrentStmt, ParseError> {
+        self.expect(TokenKind::KwIf)?;
+        let condition = self.parse_expression()?;
+        let mut local_conc_ids = vec![];
+        self.parse_conc_stmts_till_end(&mut local_conc_ids);
+        let stmts = self.alloc_stmt_list(local_conc_ids);
+        self.end_optional_label_block(label, TokenKind::KwGenerate)?;
+        Ok(ConcurrentStmt::IfGenerate {
+            label,
+            condition,
+            stmts,
+        })
     }
 }

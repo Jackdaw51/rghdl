@@ -386,6 +386,7 @@ mod tests {
                 symbols: parser.interner,
                 arena: &parser.arena,
                 indent: 0,
+                path: "",
             };
             println!("{a}");
         }

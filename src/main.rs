@@ -68,23 +68,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     let strings = strings.iter().map(|f| f.as_str()).collect();
 
-    let mut workspace = Workspace::new(paths, strings);
+    let mut workspace = Workspace::new(paths.clone(), strings);
     let file = match workspace.parse() {
         Ok(x) => x,
         Err(x) => {
-            eprintln!("Parsing failed with {} error(s):", x.1.len());
-            let source_string = workspace.get_string(x.0).unwrap();
-            for err in &x.1 {
-                eprintln!(
-                    "  {}",
-                    FormatCtx {
-                        item: err,
-                        source: source_string,
-                        arena: &AstArena::new(),
-                        indent: 0,
-                        symbols: &workspace.table.interner
-                    }
-                );
+            let a: Vec<&&str> = x.iter().map(|f|paths.get(f.0 as usize).unwrap()).collect();
+            eprintln!("Errors found in:");
+            for i in a{
+                println!("\t{i}");
             }
             return Ok(());
         }

@@ -28,23 +28,39 @@ impl<'a> Workspace<'a> {
         self.strings.get(file_id.0 as usize)
     }
 
-    pub fn parse(&mut self) -> Result<FileId, (FileId, Vec<ParseError>)> {
+    pub fn parse(&mut self) -> Result<FileId, Vec<FileId>> {
         let file_id = FileId(self.file_counter);
+        let mut faulty = vec![];
         for source in &self.strings {
             println!("Parsing {}", self.paths[self.file_counter as usize]);
             self.file_counter += 1;
 
             let mut parser = Parser::new(source, &mut self.table.interner);
             if parser.parse().is_err() {
-                parser.print_errors();
+                eprintln!("Parsing failed with {} error(s):", parser.errors.len());
+                let source_string = self.strings[file_id.0 as usize];
+                for err in &parser.errors {
+                    eprintln!(
+                        "  {}",
+                        FormatCtx {
+                            item: err,
+                            source: source_string,
+                            path: self.paths[file_id.0 as usize],
+                            arena: &AstArena::new(),
+                            indent: 0,
+                            symbols: &self.table.interner
+                        }
+                    );
+                }
+                faulty.push(file_id);
                 continue;
             };
 
-            if !parser.errors.is_empty() {
-                return Err((file_id, parser.errors));
-            }
             let arena = parser.arena;
             self.asts.push(arena);
+        }
+        if !faulty.is_empty(){
+            return Err(faulty);
         }
         Ok(file_id)
     }
@@ -61,7 +77,8 @@ impl<'a> Workspace<'a> {
                     source: source_string,
                     arena,
                     indent: 0,
-                    symbols: &self.table.interner
+                    symbols: &self.table.interner,
+                    path: self.paths[file_id.0 as usize]
                 }
             )?;
             println!("=== Parsed AST ===\n{}", ast_dump);

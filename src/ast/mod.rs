@@ -242,6 +242,19 @@ pub enum ConcurrentStmt {
         sens_list: Option<Range<u32>>, // Refers to expr_lists
         stmts: Range<u32>,
     },
+    ForGenerate{
+        label: SymbolId,
+        iterator: SymbolId,
+        range_left: ExprId,
+        range_right: ExprId,
+        direction: TokenKind,
+        stmts: Range<u32>
+    },
+    IfGenerate{
+        label: SymbolId,
+        condition: ExprId,
+        stmts: Range<u32>
+    }
 }
 
 #[derive(Debug, Clone)]

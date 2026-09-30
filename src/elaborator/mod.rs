@@ -62,6 +62,15 @@ pub struct ElaboratedPort {
     pub high_bound: i64,
     pub low_bound: i64,
 }
+impl ElaboratedPort {
+    pub fn width(&self) -> usize {
+        if self.high_bound < self.low_bound {
+            0
+        } else {
+            (self.high_bound - self.low_bound + 1) as usize
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ElaboratedSignal {
@@ -74,6 +83,25 @@ pub struct ElaboratedSignal {
     /// * Processes
     /// * An out or inout of a child component, creates a driver on that signal
     pub driver_count: usize,
+}
+impl ElaboratedSignal {
+    pub fn width(&self) -> usize {
+        if self.high_bound < self.low_bound {
+            0
+        } else {
+            (self.high_bound - self.low_bound + 1) as usize
+        }
+    }
+
+    /// Checks if a statically evaluated index is within bounds.
+    pub fn contains_index(&self, index: i64) -> bool {
+        index >= self.low_bound && index <= self.high_bound
+    }
+
+    /// Checks if a sub-range slice fits entirely within this signal's range.
+    pub fn contains_range(&self, slice_low: i64, slice_high: i64) -> bool {
+        slice_low >= self.low_bound && slice_high <= self.high_bound
+    }
 }
 
 #[derive(Debug, Clone)]

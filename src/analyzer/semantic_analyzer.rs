@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::analyzer::SemanticErrorKind::DuplicateDeclaration;
 use crate::analyzer::{
     DeclRef, ExprId, ScopeId, ScopeKind, SemanticError, SemanticErrorKind, SymbolId, SymbolTable,
-    TypeId,
+    TypeId, TypeKind,
 };
 use crate::ast::*;
 use crate::elaborator::LibraryRegistry;
@@ -35,6 +35,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
         let type_integer = registry.get_type("std", "standard", "integer").unwrap();
         let type_real = registry.get_type("std", "standard", "real").unwrap();
         let type_time = registry.get_type("std", "standard", "time").unwrap();
+        // let type_positive = registry.get_type("std", "standard", "positive").unwrap();
         let type_std_logic = registry
             .get_type("ieee", "std_logic_1164", "std_logic")
             .unwrap();
@@ -335,51 +336,6 @@ impl<'a> super::SemanticAnalyzer<'a> {
         // Populate Declarations (Signals, Variables, Constants)
         // TODO enforce assignment rules over declarations
         self.analyze_declarations(arch.decls_start, arch.decls_end, arch_scope);
-        // let decl_slice = &self.ast.decls[arch.decls_start.0 as usize..arch.decls_end.0 as usize];
-        // for (idx, decl) in decl_slice.iter().enumerate() {
-        //     let absolute_decl_id = DeclId(arch.decls_start.0 + idx as u32);
-
-        //     let (name, decl_ref) = match decl {
-        //         Decl::Signal {
-        //             name, decl_type, ..
-        //         } => (
-        //             name,
-        //             DeclRef::Signal {
-        //                 id: absolute_decl_id,
-        //                 type_id: self.resolve_type_by_name(decl_type),
-        //             },
-        //         ),
-        //         Decl::Variable {
-        //             name, decl_type, ..
-        //         } => (
-        //             name,
-        //             DeclRef::Variable {
-        //                 id: absolute_decl_id,
-        //                 type_id: self.resolve_type_by_name(decl_type),
-        //             },
-        //         ),
-        //         Decl::Constant {
-        //             name, decl_type, ..
-        //         } => (
-        //             name,
-        //             DeclRef::Constant {
-        //                 id: absolute_decl_id,
-        //                 type_id: self.resolve_type_by_name(decl_type),
-        //             },
-        //         ),
-        //         _ => continue,
-        //     };
-
-        // let sym = self.symbols.interner.get_or_internalize(name);
-        // let a = self.symbols.define(arch_scope, sym, decl_ref);
-        // if a.is_err() {
-        //     self.errors.push(SemanticError {
-        //         kind: DuplicateDeclaration(name.to_string()),
-        //         span: Span { start: 0, end: 0 },
-        //     });
-        //     //TODO correct span
-        // }
-        // }
 
         let conc_ids =
             &self.ast.conc_stmt_lists[arch.stmts.start as usize..arch.stmts.end as usize];
@@ -513,7 +469,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
         name: SymbolId,
         decl_type_name: SymbolId,
         default_val: Option<ExprId>,
-        arch_scope: ScopeId,
+        scope: ScopeId,
         decl_id: DeclId,
         make_decl_ref: F,
     ) where
@@ -544,7 +500,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
         }
 
         let decl_ref = make_decl_ref(target_type_id);
-        if let Err(_dup) = self.symbols.define(arch_scope, name, decl_ref) {
+        if let Err(_dup) = self.symbols.define(scope, name, decl_ref) {
             self.errors.push(SemanticError::new(
                 SemanticErrorKind::DuplicateDeclaration,
                 self.span(decl_id),
@@ -576,8 +532,10 @@ impl<'a> super::SemanticAnalyzer<'a> {
             DeclRef::Entity { .. }
             | DeclRef::Architecture { .. }
             | DeclRef::Component { .. }
-            | DeclRef::Instance { .. } => TypeId::ERROR,
+            | DeclRef::Instance { .. }
+            | DeclRef::Generate { .. } => TypeId::ERROR,
             DeclRef::Function(type_id) => type_id,
+            DeclRef::Implicit(type_id) => type_id,
         }
     }
 
@@ -599,14 +557,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
                 let prev_scope = self.current_scope;
                 self.current_scope = proc_scope;
-
-                // Check process body statements
-                let seq_ids = &self.ast.seq_stmt_lists[stmts.start as usize..stmts.end as usize];
-                for id in seq_ids {
-                    let seq_stmt = &self.ast.sequential_stmts[id.0 as usize];
-                    self.check_sequential_stmt(seq_stmt);
-                }
-
+                self.check_sequential_stmt_list(stmts);
                 self.current_scope = prev_scope;
             }
             ConcurrentStmt::ConcurrentAssignment {
@@ -794,6 +745,114 @@ impl<'a> super::SemanticAnalyzer<'a> {
                     }
                 }
             }
+            ConcurrentStmt::ForGenerate {
+                label,
+                iterator,
+                range_left,
+                range_right,
+                direction,
+                stmts,
+            } => {
+                let gen_scope = self
+                    .symbols
+                    .scopes
+                    .alloc(ScopeKind::Block, Some(self.current_scope));
+
+                if let Err(_x) = self.symbols.define(
+                    self.current_scope,
+                    *label,
+                    DeclRef::Generate {
+                        scope_id: gen_scope,
+                    },
+                ) {
+                    self.errors.push(SemanticError::new(
+                        SemanticErrorKind::DuplicateDeclaration,
+                        self.span(stmt_id),
+                        self.current_file,
+                    ));
+                    return;
+                };
+
+                let prev_scope = self.current_scope;
+                self.current_scope = gen_scope;
+                let Ok(l_type) = self
+                    .infer_expr_type(*range_left, None)
+                    .inspect_err(|e| self.errors.push(e.clone()))
+                else {
+                    return;
+                };
+                let Ok(r_type) = self
+                    .infer_expr_type(*range_right, None)
+                    .inspect_err(|e| self.errors.push(e.clone()))
+                else {
+                    return;
+                };
+                if !matches!(self.types.get(l_type), Some(TypeKind::Integer { name: _ })) {
+                    self.errors.push(SemanticError {
+                        kind: SemanticErrorKind::HasToBeIntegerOrDerived,
+                        span: self.span(*range_left),
+                        file_id: self.current_file,
+                    });
+                    return;
+                }
+                if !matches!(self.types.get(r_type), Some(TypeKind::Integer { name: _ })) {
+                    self.errors.push(SemanticError {
+                        kind: SemanticErrorKind::HasToBeIntegerOrDerived,
+                        span: self.span(*range_right),
+                        file_id: self.current_file,
+                    });
+                    return;
+                }
+                if let Err(_a) =
+                    self.symbols
+                        .define(gen_scope, *iterator, DeclRef::Implicit(self.type_integer))
+                {
+                    self.errors.push(SemanticError::new(
+                        SemanticErrorKind::DuplicateDeclaration,
+                        self.span(stmt_id),
+                        self.current_file,
+                    ));
+                    return;
+                }
+                for i in &self.ast.conc_stmt_lists[stmts.start as usize..stmts.end as usize] {
+                    self.check_concurrent_stmt(*i);
+                }
+                self.current_scope = prev_scope;
+            }
+            ConcurrentStmt::IfGenerate {
+                label,
+                condition,
+                stmts,
+            } => {
+                let gen_scope = self
+                    .symbols
+                    .scopes
+                    .alloc(ScopeKind::Block, Some(self.current_scope));
+
+                if let Err(_x) = self.symbols.define(
+                    self.current_scope,
+                    *label,
+                    DeclRef::Generate {
+                        scope_id: gen_scope,
+                    },
+                ) {
+                    self.errors.push(SemanticError::new(
+                        SemanticErrorKind::DuplicateDeclaration,
+                        self.span(stmt_id),
+                        self.current_file,
+                    ));
+                    return;
+                };
+                let prev_scope = self.current_scope;
+                self.current_scope = gen_scope;
+                if self.check_boolean_condition(*condition).is_none() {
+                    return;
+                }
+                for i in &self.ast.conc_stmt_lists[stmts.start as usize..stmts.end as usize] {
+                    self.check_concurrent_stmt(*i);
+                }
+                self.current_scope = prev_scope;
+            }
             a => todo!("{:?}", a),
         }
     }
@@ -819,7 +878,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
             })
     }
 
-    fn check_boolean_condition(&mut self, condition: ExprId) {
+    fn check_boolean_condition(&mut self, condition: ExprId) -> Option<TypeId> {
         let cond_type_res = self.infer_expr_type(condition, Some(self.type_boolean));
 
         match cond_type_res {
@@ -829,12 +888,15 @@ impl<'a> super::SemanticAnalyzer<'a> {
                         SemanticErrorKind::ConditionNotBoolean { found: cond_type },
                         self.span(condition),
                         self.current_file,
-                    ))
+                    ));
+                    return None;
                 }
+                Some(cond_type)
             }
             Err(err) => {
                 self.errors
                     .push(SemanticError::new(err.kind, err.span, self.current_file));
+                None
             }
         }
     }
