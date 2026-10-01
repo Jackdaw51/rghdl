@@ -52,7 +52,10 @@ impl<'a> Display for FormatCtx<'a, ParseError> {
                 write!(f, "A generate statement must have a label")
             }
             crate::parser::ParseErrorKind::DirectEntityInstCantBeLabelLess => {
-                write!(f, "A direct entity instantiation statement must have a label")
+                write!(
+                    f,
+                    "A direct entity instantiation statement must have a label"
+                )
             }
         }?;
         write!(
@@ -261,12 +264,35 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt> {
                 range_right: range_rigth,
                 direction,
                 stmts,
-            } => todo!(),
+            } => {
+                write!(f, "{}: ", self.get_symbol(*label))?;
+                writeln!(
+                    f,
+                    "for {} in {} {} {} generate",
+                    self.get_symbol(*iterator),
+                    self.child(self.get_expr(*range_left)),
+                    direction,
+                    self.child(self.get_expr(*range_rigth))
+                )?;
+                for i in self.arena.conc_statements(stmts.clone()) {
+                    write!(f, "{}", self.child_indented(i))?;
+                }
+                writeln!(f, "{}end generate;", self.pad())?;
+                Ok(())
+            }
             ConcurrentStmt::IfGenerate {
                 label,
                 condition,
                 stmts,
-            } => todo!(),
+            } => {
+                write!(f, "{}: ", self.get_symbol(*label))?;
+                writeln!(f, "if {} generate", self.child(self.get_expr(*condition)))?;
+                for i in self.arena.conc_statements(stmts.clone()) {
+                    write!(f, "{}", self.child_indented(i))?;
+                }
+                writeln!(f, "{}end generate;", self.pad())?;
+                Ok(())
+            }
         }
     }
 }
@@ -382,7 +408,7 @@ impl<'a> Display for FormatCtx<'a, Decl> {
                     f,
                     "signal {} : {}",
                     self.get_symbol(*name),
-                    self.get_symbol(*decl_type)
+                    self.child(self.arena.expr(*decl_type))
                 )?;
                 if let Some(x) = default_val {
                     write!(f, " := {}", self.child(self.get_expr(*x)))?;
@@ -398,7 +424,7 @@ impl<'a> Display for FormatCtx<'a, Decl> {
                     f,
                     "constant {} : {}",
                     self.get_symbol(*name),
-                    self.get_symbol(*decl_type)
+                    self.child(self.arena.expr(*decl_type))
                 )?;
                 if let Some(x) = default_val {
                     write!(f, " := {}", self.child(self.get_expr(*x)))?;
@@ -414,7 +440,7 @@ impl<'a> Display for FormatCtx<'a, Decl> {
                     f,
                     "variable {} : {}",
                     self.get_symbol(*name),
-                    self.get_symbol(*decl_type)
+                    self.child(self.arena.expr(*decl_type))
                 )?;
                 if let Some(x) = default_val {
                     write!(f, " := {}", self.child(self.get_expr(*x)))?;

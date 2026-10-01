@@ -68,8 +68,8 @@ impl<'a> Parser<'a> {
 
             self.expect(TokenKind::Colon)?;
 
-            let decl_type_span = self.expect(TokenKind::Identifier)?.span;
-            let decl_type = self.intern(decl_type_span);
+            let decl_type = self.parse_expression()?;
+
             // Optional default initialization expression (`:= 32`)
             let default_val = if self.lexer.peek().kind == TokenKind::OpAssign {
                 self.advance();

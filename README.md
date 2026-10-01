@@ -39,6 +39,10 @@ We assert the type from left and right expression resolves to integer base and t
 
 For the `IfGenerate` instead, the thing is simpler. Just add the label, evaluate the condition to boolean and recursively check the body.
 
+##### Elaboration
+We continue our journey into elaboration, maybe the most exciting part for the generate blocks.
+
+
 
 
 

@@ -365,7 +365,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
                 } => {
                     self.register_declaration(
                         *name,
-                        *decl_type,
+                        Some(*decl_type),
                         *default_val,
                         arch_scope,
                         absolute_decl_id,
@@ -382,7 +382,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
                 } => {
                     self.register_declaration(
                         *name,
-                        *decl_type,
+                        Some(*decl_type),
                         *default_val,
                         arch_scope,
                         absolute_decl_id,
@@ -399,7 +399,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
                 } => {
                     self.register_declaration(
                         *name,
-                        *decl_type,
+                        Some(*decl_type),
                         *default_val,
                         arch_scope,
                         absolute_decl_id,
@@ -451,7 +451,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
                     self.register_declaration(
                         *name,
-                        *name,
+                        None,
                         None,
                         arch_scope,
                         absolute_decl_id,
@@ -467,7 +467,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
     fn register_declaration<F>(
         &mut self,
         name: SymbolId,
-        decl_type_name: SymbolId,
+        decl_type: Option<ExprId>,
         default_val: Option<ExprId>,
         scope: ScopeId,
         decl_id: DeclId,
@@ -475,7 +475,10 @@ impl<'a> super::SemanticAnalyzer<'a> {
     ) where
         F: FnOnce(TypeId) -> DeclRef,
     {
-        let target_type_id = self.resolve_type_by_sym(decl_type_name);
+        let target_type_id = match decl_type{
+            Some(ex) => self.infer_expr_type(ex, None).unwrap_or(TypeId::ERROR),
+            None => TypeId::ERROR,
+        };
 
         // Defualt assignmetn
         if let Some(expr_id) = default_val {

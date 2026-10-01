@@ -147,17 +147,17 @@ pub struct Entity {
 pub enum Decl {
     Signal {
         name: SymbolId,
-        decl_type: SymbolId,
+        decl_type: ExprId,
         default_val: Option<ExprId>,
     },
     Constant {
         name: SymbolId,
-        decl_type: SymbolId,
+        decl_type: ExprId,
         default_val: Option<ExprId>,
     },
     Variable {
         name: SymbolId,
-        decl_type: SymbolId,
+        decl_type: ExprId,
         default_val: Option<ExprId>,
     },
     Component {

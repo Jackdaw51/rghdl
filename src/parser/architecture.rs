@@ -296,9 +296,9 @@ impl<'a> Parser<'a> {
         }
         self.expect(TokenKind::Colon)?;
 
-        let decl_type_span =
-            self.slice_until_depth_zero(&[TokenKind::Semicolon, TokenKind::OpAssign])?;
-        let decl_type = self.intern(decl_type_span);
+        // let decl_type_span =
+            // self.slice_until_depth_zero(&[TokenKind::Semicolon, TokenKind::OpAssign])?;
+        let decl_type = self.parse_expression()?;
 
         let mut default_val = None;
         if self.next_is(TokenKind::OpAssign) {

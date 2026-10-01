@@ -383,7 +383,7 @@ impl<'a> Elaborator<'a> {
                     default_val,
                 } => {
                     let sym = *name;
-                    let type_id = self.resolve_type_by_sym(*decl_type)?;
+                    let type_id = self.get_type_from_expr(*decl_type);
                     let (high_bound, low_bound) = self.get_type_bounds(type_id);
                     let sig_id = self.arena.alloc_signal(
                         ElaboratedSignal {
@@ -1292,6 +1292,7 @@ impl<'a> Elaborator<'a> {
             return Ok(self.sa.get_decl_type(decl_ref));
         }
         let clean = self.get_str(name);
+        dbg!(clean);
         match clean {
             "std_logic" => Ok(self.sa.type_std_logic),
             "std_logic_vector" => Ok(self.sa.type_std_logic_vector),
@@ -1316,6 +1317,10 @@ impl<'a> Elaborator<'a> {
 
     fn get_ast(&self, file_id: crate::workspace::FileId) -> &AstArena {
         &self.sa.asts[file_id.0 as usize]
+    }
+    
+    fn get_type_from_expr(&self, decl_type: crate::ast::ExprId) -> TypeId {
+        self.sa.expr_types[decl_type.0 as usize]
     }
 }
 pub trait FromDeclRef<'a, Target> {
