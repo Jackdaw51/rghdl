@@ -297,7 +297,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::Colon)?;
 
         // let decl_type_span =
-            // self.slice_until_depth_zero(&[TokenKind::Semicolon, TokenKind::OpAssign])?;
+        // self.slice_until_depth_zero(&[TokenKind::Semicolon, TokenKind::OpAssign])?;
         let decl_type = self.parse_expression()?;
 
         let mut default_val = None;
@@ -376,8 +376,7 @@ impl<'a> Parser<'a> {
         // Handle optional "end process;" or "end process label;"
         if let Some(lbl) = label {
             self.end_optional_label_block(lbl, TokenKind::KwProcess)?;
-        }
-        else if self.next_is(TokenKind::KwProcess) {
+        } else if self.next_is(TokenKind::KwProcess) {
             self.advance();
         }
         Ok(ConcurrentStmt::Process {
@@ -710,6 +709,7 @@ impl<'a> Parser<'a> {
 
         let mut local_conc_ids = vec![];
         self.parse_conc_stmts_till_end(&mut local_conc_ids);
+        dbg!(&local_conc_ids);
 
         let stmts = self.alloc_stmt_list(local_conc_ids);
         self.end_optional_label_block(label, TokenKind::KwGenerate)?;
@@ -740,6 +740,27 @@ impl<'a> Parser<'a> {
     ) -> Result<crate::ast::ConcurrentStmt, ParseError> {
         self.expect(TokenKind::KwIf)?;
         let condition = self.parse_expression()?;
+        self.expect(TokenKind::KwGenerate)?;
+
+        let mut has_decl = false;
+        let decls_start = DeclId(self.arena.decls.len() as u32);
+        if matches!(
+            self.lexer.peek().kind,
+            TokenKind::KwSignal | TokenKind::KwConstant | TokenKind::KwVariable
+        ) {
+            while !self.next_is(TokenKind::KwBegin) {
+                if let Err(x) = self.parse_architecture_declaration() {
+                    self.errors.push(x);
+                    self.recover_to_declaration_boundary();
+                };
+                has_decl = true;
+            }
+        }
+        let decls_end = DeclId(self.arena.decls.len() as u32);
+        if has_decl {
+            self.expect(TokenKind::KwBegin)?;
+        }
+
         let mut local_conc_ids = vec![];
         self.parse_conc_stmts_till_end(&mut local_conc_ids);
         let stmts = self.alloc_stmt_list(local_conc_ids);
@@ -748,6 +769,8 @@ impl<'a> Parser<'a> {
             label,
             condition,
             stmts,
+            decls_start,
+            decls_end,
         })
     }
 }

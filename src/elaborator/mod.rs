@@ -10,11 +10,11 @@ mod elaborator;
 mod environment;
 mod evaluated_value;
 
-use crate::analyzer::{SemanticAnalyzer, SymbolId, TypeId};
-use crate::ast::{AstArena, BinaryOp, GetSpan, PortId, PortMode, UnaryOp};
+use crate::analyzer::{ScopeId, SemanticAnalyzer, SymbolId, TypeId};
+use crate::ast::{BinaryOp, GetSpan, PortId, PortMode, UnaryOp};
 use crate::workspace::FileId;
 use std::collections::HashMap;
-use std::error::Error;
+use std::ops::Range;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExprId(pub u32);
@@ -51,7 +51,7 @@ impl EvaluatedValue {
 #[derive(Debug, Clone)]
 pub struct PortBinding {
     pub port_name: SymbolId,
-    pub actual_signal: SignalId, // Points to the physical wire in the Arena
+    pub actual_signal: ExprId, // Points to the physical wire in the Arena
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +83,8 @@ pub struct ElaboratedSignal {
     /// * Processes
     /// * An out or inout of a child component, creates a driver on that signal
     pub driver_count: usize,
+    //needed because generate statements need unique signals
+    pub optional_locality: Option<String>,
 }
 impl ElaboratedSignal {
     pub fn width(&self) -> usize {
@@ -130,7 +132,7 @@ pub enum ElaboratedSequentialStmt {
 
 #[derive(Debug, Clone)]
 pub struct ElaboratedConcurrentAssignment {
-    pub target_signal: SignalId,
+    pub target_signal: ExprId,
     pub value_expr: ExprId,
     pub delay_expr: Option<ExprId>,
 }
@@ -147,6 +149,10 @@ pub enum EvaluatedExpr {
     UnaryOp {
         op: UnaryOp,
         expr: ExprId,
+    },
+    ArrayIndex {
+        target: ExprId,
+        index: ExprId,
     },
 }
 
@@ -237,12 +243,14 @@ pub enum ElaboratorError {
     BindingError {
         reason: String,
         span: Span,
+        file_id: FileId,
     },
 
     /// For incremental development: when we hit a VHDL feature we haven't implemented yet.
     NotYetImplemented {
         feature: String,
         span: Span,
+        file_id: FileId,
     },
     SignalNotFound(String),
     SymbolNotFound(String),
@@ -264,6 +272,8 @@ pub struct Environment {
     pub variables: HashMap<SymbolId, EvaluatedValue>,
 
     pub components: HashMap<SymbolId, ComponentSignature>,
+
+    current_scope: ScopeId,
 }
 
 #[derive(Debug, Clone)]
@@ -295,6 +305,12 @@ pub struct ComponentSignature {
 
 use crate::analyzer::TypeArena;
 
+#[derive(Debug, Clone)]
+pub struct FnSig {
+    pub param_types: Range<u32>,
+    pub return_type: TypeId,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Package {
     /// Types exported by this package (keyed by SymbolId for fast AST scope resolution)
@@ -307,7 +323,8 @@ pub struct Package {
     pub signals: HashMap<SymbolId, SignalId>,
 
     /// Function signatures exported by this package
-    pub functions: HashMap<SymbolId, TypeId>,
+    pub functions: HashMap<SymbolId, FnSig>,
+    pub param_types_pool: Vec<TypeId>,
 
     /// Internal helper map: string name -> SymbolId for compiler string lookups
     pub name_map: HashMap<String, SymbolId>,
@@ -325,10 +342,24 @@ impl Package {
         self.constants.insert(sym, val);
         self.name_map.insert(name_lower, sym);
     }
-    pub fn add_function(&mut self, name: &str, sym: SymbolId, fn_type_id: TypeId) {
-        let name_lower = name.to_lowercase();
-        self.functions.insert(sym, fn_type_id);
-        self.name_map.insert(name_lower, sym);
+    pub fn add_function(
+        &mut self,
+        name: &str,
+        sym: SymbolId,
+        param_types: &[TypeId],
+        return_type: TypeId,
+    ) {
+        let start = self.param_types_pool.len() as u32;
+        self.param_types_pool.extend_from_slice(param_types);
+        let end = self.param_types_pool.len() as u32;
+
+        let sig = FnSig {
+            return_type,
+            param_types: start..end,
+        };
+
+        self.functions.insert(sym, sig);
+        self.name_map.insert(name.to_lowercase(), sym);
     }
 }
 

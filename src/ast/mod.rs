@@ -96,6 +96,7 @@ pub enum Expr {
         unit: SymbolId, // Unit symbol (e.g. "ns")
     },
     Others,
+    Open,
     All,
     Aggregate {
         elements: Range<u32>,
@@ -242,19 +243,21 @@ pub enum ConcurrentStmt {
         sens_list: Option<Range<u32>>, // Refers to expr_lists
         stmts: Range<u32>,
     },
-    ForGenerate{
+    ForGenerate {
         label: SymbolId,
         iterator: SymbolId,
         range_left: ExprId,
         range_right: ExprId,
         direction: TokenKind,
-        stmts: Range<u32>
+        stmts: Range<u32>,
     },
-    IfGenerate{
+    IfGenerate {
         label: SymbolId,
         condition: ExprId,
-        stmts: Range<u32>
-    }
+        decls_start: DeclId,
+        decls_end: DeclId,
+        stmts: Range<u32>,
+    },
 }
 
 #[derive(Debug, Clone)]

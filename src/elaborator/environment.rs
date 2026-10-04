@@ -186,12 +186,7 @@ impl LibraryRegistry {
 
         // Register rising_edge(s: std_logic) -> boolean
         let sym_rising_edge = interner.get_or_internalize("rising_edge");
-        let type_rising_edge = registry.types.alloc(TypeKind::Function {
-            name: sym_rising_edge,
-            args: vec![type_sl],
-            return_type: type_bool,
-        });
-        std_logic_pkg.add_function("rising_edge", sym_rising_edge, type_rising_edge);
+        std_logic_pkg.add_function("rising_edge", sym_rising_edge, &[type_sl], type_bool);
 
         let mut numeric_std_pkg = Package::default();
 
@@ -211,21 +206,16 @@ impl LibraryRegistry {
 
         // Register to_unsigned(arg: integer, size: integer) -> unsigned
         let sym_to_unsigned = interner.get_or_internalize("to_unsigned");
-        let type_to_unsigned = registry.types.alloc(TypeKind::Function {
-            name: sym_to_unsigned,
-            args: vec![type_int, type_int],
-            return_type: type_unsigned,
-        });
-        numeric_std_pkg.add_function("to_unsigned", sym_to_unsigned, type_to_unsigned);
+        numeric_std_pkg.add_function(
+            "to_unsigned",
+            sym_to_unsigned,
+            &[type_int, type_int],
+            type_unsigned,
+        );
 
         // Register to_integer(arg: unsigned) -> integer
         let sym_to_integer = interner.get_or_internalize("to_integer");
-        let type_to_integer = registry.types.alloc(TypeKind::Function {
-            name: sym_to_integer,
-            args: vec![type_unsigned],
-            return_type: type_int,
-        });
-        numeric_std_pkg.add_function("to_integer", sym_to_integer, type_to_integer);
+        numeric_std_pkg.add_function("to_integer", sym_to_integer, &[type_unsigned], type_int);
 
         let math_real_pkg = Package::default(); // Let's say it exists
 

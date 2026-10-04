@@ -105,6 +105,39 @@ begin
 
 end architecture struct;
 
+library ieee;
+use ieee.std_logic_1164.all;
+
+entity ripple_adder_top is
+    port (
+        in1   : in  std_logic_vector(7 downto 0);
+        in2   : in  std_logic_vector(7 downto 0);
+        c_in  : in  std_logic;
+        res   : out std_logic_vector(7 downto 0);
+        c_out : out std_logic
+    );
+end entity ripple_adder_top;
+
+architecture struct of ripple_adder_top is
+begin
+
+    -- Instantiate ripple_adder overriding 'width' to 8
+    u_adder_8bit : entity work.ripple_adder
+        generic map (
+            width => 8,
+            tpd   => 2 ns
+        )
+        port map (
+            a      => in1,
+            b      => in2,
+            cin    => c_in,
+            sum    => res,
+            cout   => c_out,
+            unused => open  -- Explicitly unmapped port
+        );
+
+end architecture struct;
+
 -- --------------------------------------------------------------------------
 -- library ieee;
 -- use ieee.std_logic_1164.all;

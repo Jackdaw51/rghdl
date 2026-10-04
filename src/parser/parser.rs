@@ -59,6 +59,12 @@ impl<'a> Parser<'a> {
                 }
             };
         }
+        if !self.errors.is_empty() {
+            return Err(ParseError {
+                kind: ParseErrorKind::Error,
+                span: Span { start: 0, end: 0 },
+            });
+        }
         Ok(())
     }
 

@@ -172,10 +172,18 @@ impl<'a> super::SemanticAnalyzer<'a> {
                     .symbols
                     .define(self.current_scope, *sym_id, DeclRef::Type(*type_id));
             }
-            for (&sym_id, argument) in &pkg.functions {
-                let _ =
-                    self.symbols
-                        .define(self.current_scope, sym_id, DeclRef::Function(*argument));
+            for (&sym_id, func_sig) in &pkg.functions {
+                let pkg_params = &pkg.param_types_pool
+                    [func_sig.param_types.start as usize..func_sig.param_types.end as usize];
+                let params_range = self.symbols.interner.alloc_param_types(pkg_params);
+                let _ = self.symbols.define(
+                    self.current_scope,
+                    sym_id,
+                    DeclRef::Function {
+                        return_type: func_sig.return_type,
+                        param_types: params_range,
+                    },
+                );
             }
         } else {
             // Selective import of a single item
@@ -186,10 +194,15 @@ impl<'a> super::SemanticAnalyzer<'a> {
                         .symbols
                         .define(self.current_scope, sym_id, DeclRef::Type(type_id));
                 }
-                if let Some(&type_id) = pkg.functions.get(&sym_id) {
-                    let _ =
-                        self.symbols
-                            .define(self.current_scope, sym_id, DeclRef::Function(type_id));
+                if let Some(func_sig) = pkg.functions.get(&sym_id) {
+                    let _ = self.symbols.define(
+                        self.current_scope,
+                        sym_id,
+                        DeclRef::Function {
+                            return_type: func_sig.return_type,
+                            param_types: func_sig.param_types.clone(),
+                        },
+                    );
                 }
             } else {
                 self.errors.push(SemanticError::new(
@@ -238,7 +251,9 @@ impl<'a> super::SemanticAnalyzer<'a> {
         let prev_scope = self.current_scope;
         self.current_scope = entity_scope;
 
+        // dbg!(&self.ast.decls[entity.generics_start.0 as usize..entity.generics_end.0 as usize]);
         self.analyze_declarations(entity.generics_start, entity.generics_end, entity_scope);
+        dbg!(entity_scope);
 
         // Populate Ports into Entity Scope
         let port_slice =
@@ -313,7 +328,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
         let arch_decl = DeclRef::Architecture {
             file_id: self.current_file,
             entity_tuple: (entity_id, file_id),
-            scope_id: entity_scope,
+            scope_id: arch_scope,
             ast_id: ArchitectureId(arch_id),
         };
 
@@ -332,10 +347,16 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
         let prev_scope = self.current_scope;
         self.current_scope = arch_scope;
-
+        dbg!(arch_scope, entity_scope);
         // Populate Declarations (Signals, Variables, Constants)
         // TODO enforce assignment rules over declarations
         self.analyze_declarations(arch.decls_start, arch.decls_end, arch_scope);
+        // dbg!(
+        //     self.get_str(arch_name),
+        //     self.get_str(entity_sym),
+        //     arch_scope,
+        //     entity_scope
+        // );
 
         let conc_ids =
             &self.ast.conc_stmt_lists[arch.stmts.start as usize..arch.stmts.end as usize];
@@ -475,7 +496,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
     ) where
         F: FnOnce(TypeId) -> DeclRef,
     {
-        let target_type_id = match decl_type{
+        let target_type_id = match decl_type {
             Some(ex) => self.infer_expr_type(ex, None).unwrap_or(TypeId::ERROR),
             None => TypeId::ERROR,
         };
@@ -514,7 +535,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
     /// Helper to dig through arrays/fields to find the root Identifier being assigned to
     pub(crate) fn get_base_declaration(&mut self, expr_id: ExprId) -> Option<DeclRef> {
-        match self.ast.exprs[expr_id.0 as usize].clone() {
+        match self.ast.exprs[expr_id.0 as usize] {
             Expr::Identifier { name } => self.symbols.lookup(self.current_scope, name),
             Expr::CallOrIndex { callee, .. } => {
                 // If it's my_arr(0), the base declaration is 'my_arr'
@@ -537,7 +558,10 @@ impl<'a> super::SemanticAnalyzer<'a> {
             | DeclRef::Component { .. }
             | DeclRef::Instance { .. }
             | DeclRef::Generate { .. } => TypeId::ERROR,
-            DeclRef::Function(type_id) => type_id,
+            DeclRef::Function {
+                return_type,
+                param_types: _,
+            } => return_type,
             DeclRef::Implicit(type_id) => type_id,
         }
     }
@@ -593,7 +617,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
                 label,
                 component_name,
                 arch_qualifier: _,
-                generic_map: _,
+                generic_map,
                 port_map,
             } => {
                 if let Some(sym) = *label {
@@ -611,10 +635,9 @@ impl<'a> super::SemanticAnalyzer<'a> {
                         );
                     }
                 }
-
                 let decl_ref = self.resolve_instantiated_target(*component_name);
 
-                let target_ports = match decl_ref {
+                let (target_ports, target_generics) = match decl_ref {
                     Some(DeclRef::Component { id }) => {
                         if let Decl::Component {
                             ports_start,
@@ -622,20 +645,31 @@ impl<'a> super::SemanticAnalyzer<'a> {
                             ..
                         } = &self.ast.decls[id.0 as usize]
                         {
-                            &self.ast.ports[ports_start.0 as usize..ports_end.0 as usize]
+                            (
+                                &self.ast.ports[ports_start.0 as usize..ports_end.0 as usize],
+                                None,
+                            )
                         } else {
                             unreachable!("DeclRef::Component must point to Decl::Component");
                         }
                     }
                     Some(DeclRef::Entity {
-                        entity_id, file_id, ..
+                        entity_id,
+                        file_id,
+                        scope_id,
                     }) => {
                         let a = self.set_active_file(file_id);
                         let entity = &self.ast.entities[entity_id.0 as usize];
                         let b = &self.ast.ports
                             [entity.ports_start.0 as usize..entity.ports_end.0 as usize];
+                        let c = &self.ast.decls
+                            [entity.generics_start.0 as usize..entity.generics_end.0 as usize];
+
                         self.set_active_file(a);
-                        b
+                        let a = &self.ast.associations
+                            [generic_map.start as usize..generic_map.end as usize];
+                        self.analyze_generic_mapping(entity, scope_id, a);
+                        (b, Some(c))
                     }
                     _ => {
                         self.errors.push(SemanticError::new(
@@ -703,6 +737,10 @@ impl<'a> super::SemanticAnalyzer<'a> {
                         }
                     };
 
+                    dbg!(
+                        self.print_expr(assoc_expr.actual),
+                        self.print_expr(formal_port.port_type)
+                    );
                     let formal_type = match self.infer_expr_type(formal_port.port_type, None) {
                         Ok(t) => t,
                         Err(err) => {
@@ -826,7 +864,10 @@ impl<'a> super::SemanticAnalyzer<'a> {
                 label,
                 condition,
                 stmts,
+                decls_start,
+                decls_end,
             } => {
+                self.analyze_declarations(*decls_start, *decls_end, self.current_scope);
                 let gen_scope = self
                     .symbols
                     .scopes
@@ -1077,5 +1118,50 @@ impl<'a> super::SemanticAnalyzer<'a> {
                 _ => None,
             }
         }
+    }
+
+    fn analyze_generic_mapping(
+        &mut self,
+        entity: &Entity,
+        scope_id: ScopeId,
+        assoc: &[Association],
+    ) {
+        let prev_scope = self.current_scope;
+        self.current_scope = scope_id;
+        for i in assoc {
+            let formal = i.formal.unwrap();
+            let formal_decl = self.get_base_declaration(formal);
+            let Some(formal_decl) = formal_decl else {
+                self.errors.push(SemanticError::new(
+                    SemanticErrorKind::UndefinedSymbol,
+                    self.span(formal),
+                    self.current_file,
+                ));
+                return;
+            };
+            let DeclRef::Constant { id, type_id } = formal_decl else {
+                unreachable!()
+            };
+            match self.infer_expr_type(formal, Some(type_id)) {
+                Ok(_) => {}
+                Err(e) => {
+                    self.errors.push(e);
+                    return;
+                }
+            }
+
+            match self.infer_expr_type(i.actual, Some(type_id)) {
+                Ok(_) => {}
+                Err(e) => {
+                    self.errors.push(e);
+                    return;
+                }
+            }
+            let sym = self.get_base_stripped(formal).unwrap();
+            if self.symbols.define(prev_scope, sym, formal_decl).is_err(){
+                panic!()
+            };
+        }
+        self.current_scope = prev_scope;
     }
 }

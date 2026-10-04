@@ -43,7 +43,11 @@ impl<'a> Display for ElaboratedFormatCtx<'a, EvaluatedExpr> {
             EvaluatedExpr::Literal(val) => write!(f, "{}", self.child(val)),
             EvaluatedExpr::SignalRead(sig_id) => {
                 let sig = &self.arena.signals[sig_id.0 as usize];
-                write!(f, "{}", self.sym(sig.name))
+                let n = match &sig.optional_locality {
+                    Some(x) => x,
+                    None => &self.sym(sig.name).to_string(),
+                };
+                write!(f, "{}", n)
             }
             EvaluatedExpr::BinaryOp { lhs, op, rhs } => {
                 let lhs_expr = &self.arena.exprs[lhs.0 as usize];
@@ -71,6 +75,11 @@ impl<'a> Display for ElaboratedFormatCtx<'a, EvaluatedExpr> {
                     }
                     _ => write!(f, "{} {}", op_str, self.child(inner_expr)),
                 }
+            }
+            EvaluatedExpr::ArrayIndex { target, index } => {
+                let target = &self.arena.exprs[target.0 as usize];
+                let index = &self.arena.exprs[index.0 as usize];
+                write!(f, "{}({})", self.child(target), self.child(index))
             }
         }
     }
@@ -120,15 +129,16 @@ impl<'a> Display for ElaboratedFormatCtx<'a, ElaboratedSequentialStmt> {
 
 impl<'a> Display for ElaboratedFormatCtx<'a, ElaboratedConcurrentAssignment> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let target_sig = &self.arena.signals[self.item.target_signal.0 as usize];
+        let target_expr = &self.arena.exprs[self.item.target_signal.0 as usize];
         let val_expr = &self.arena.exprs[self.item.value_expr.0 as usize];
+
         if let Some(delay_id) = self.item.delay_expr {
             let delay_expr = &self.arena.exprs[delay_id.0 as usize];
             writeln!(
                 f,
                 "{}{} <= {} after {} fs;",
                 self.pad(),
-                self.sym(target_sig.name),
+                self.child(target_expr),
                 self.child(val_expr),
                 self.child(delay_expr)
             )
@@ -137,7 +147,7 @@ impl<'a> Display for ElaboratedFormatCtx<'a, ElaboratedConcurrentAssignment> {
                 f,
                 "{}{} <= {};",
                 self.pad(),
-                self.sym(target_sig.name),
+                self.child(target_expr),
                 self.child(val_expr)
             )
         }
@@ -153,7 +163,11 @@ impl<'a> Display for ElaboratedFormatCtx<'a, ElaboratedProcess> {
             if i > 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{}", self.sym(sig.name))?;
+            let n = match &sig.optional_locality {
+                Some(x) => x,
+                None => &self.sa.get_str(sig.name).to_string(),
+            };
+            write!(f, "{}", n)?;
         }
         writeln!(f, ")")?;
 
@@ -165,162 +179,162 @@ impl<'a> Display for ElaboratedFormatCtx<'a, ElaboratedProcess> {
     }
 }
 
-impl<'a> Display for ElaboratedFormatCtx<'a, InstanceNode> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inst = self.item;
+// impl<'a> Display for ElaboratedFormatCtx<'a, InstanceNode> {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         let inst = self.item;
 
-        for child_id in &inst.children {
-            let child_node = &self.arena.instances[child_id.0 as usize];
-            writeln!(f, "{}", self.child(child_node))?;
-        }
+//         for child_id in &inst.children {
+//             let child_node = &self.arena.instances[child_id.0 as usize];
+//             writeln!(f, "{}", self.child(child_node))?;
+//         }
 
-        // let unique_entity_name = if inst.hierarchical_path == "top" {
-        //     // Preserve exact top-level entity name for GHDL validation
-        //     self.sa.symbols.interner.get(inst.entity_name).to_string()
-        // } else {
-        //     format!("{}_{}", self.sym(inst.entity_name), inst.instance_name.0)
-        // };
-        // let unique_entity_name = format!("{}_{}", self.sym(inst.entity_name), inst.instance_name.0);
+//         // let unique_entity_name = if inst.hierarchical_path == "top" {
+//         //     // Preserve exact top-level entity name for GHDL validation
+//         //     self.sa.symbols.interner.get(inst.entity_name).to_string()
+//         // } else {
+//         //     format!("{}_{}", self.sym(inst.entity_name), inst.instance_name.0)
+//         // };
+//         // let unique_entity_name = format!("{}_{}", self.sym(inst.entity_name), inst.instance_name.0);
 
-        let a = self.sa.symbols.lookup_local(ScopeId(0), inst.entity_name);
-        let Some(DeclRef::Entity {
-            file_id,
-            entity_id,
-            scope_id,
-        }) = a
-        else {
-            panic!()
-        };
+//         let a = self.sa.symbols.lookup_local(ScopeId(0), inst.entity_name);
+//         let Some(DeclRef::Entity {
+//             file_id,
+//             entity_id,
+//             scope_id,
+//         }) = a
+//         else {
+//             panic!()
+//         };
 
-        let ast = self.sa.get_ast(*file_id);
-        let entity = &ast.entities[entity_id.0 as usize];
+//         let ast = self.sa.get_ast(*file_id);
+//         let entity = &ast.entities[entity_id.0 as usize];
 
-        for ctx in &ast.contexts[entity.contexts.start as usize..entity.contexts.end as usize] {
-            match ctx {
-                ContextItem::Library { name, span } => {
-                    writeln!(f, "library {};", self.sa.symbols.interner.get(*name))?
-                }
-                ContextItem::Use { path, span } => write!(
-                    f,
-                    "{}",
-                    FormatCtx {
-                        item: ctx,
-                        source: "",
-                        symbols: &self.sa.symbols.interner,
-                        arena: ast,
-                        indent: self.indent,
-                        path: ""
-                    }
-                )?,
-            }
-        }
+//         for ctx in &ast.contexts[entity.contexts.start as usize..entity.contexts.end as usize] {
+//             match ctx {
+//                 ContextItem::Library { name, span } => {
+//                     writeln!(f, "library {};", self.sa.symbols.interner.get(*name))?
+//                 }
+//                 ContextItem::Use { path, span } => write!(
+//                     f,
+//                     "{}",
+//                     FormatCtx {
+//                         item: ctx,
+//                         source: "",
+//                         symbols: &self.sa.symbols.interner,
+//                         arena: ast,
+//                         indent: self.indent,
+//                         path: ""
+//                     }
+//                 )?,
+//             }
+//         }
 
-        let unique_entity_name = format!("{}_flat", self.sym(inst.entity_name));
+//         let unique_entity_name = format!("{}_flat", self.sym(inst.entity_name));
 
-        writeln!(f, "entity {} is", unique_entity_name)?;
-        if !inst.generics.is_empty() {
-            writeln!(f, "\tgeneric (")?;
-            let len = inst.generics.len();
-            for (i, (name, val)) in inst.generics.iter().enumerate() {
-                let term = if i == len - 1 { "" } else { ";" };
-                // Generics omit mode (in/out) and append the resolved assignment (:= value)
-                writeln!(
-                    f,
-                    "\t\t{} : integer := {}{}",
-                    self.sym(*name),
-                    val.to_vhdl_string(&self.sa.symbols.interner),
-                    term
-                )?;
-            }
-            writeln!(f, "\t);")?;
-        }
-        if !inst.ports.is_empty() {
-            writeln!(f, "\tport (")?;
-            for (i, port) in inst.ports.iter().enumerate() {
-                let term = if i == inst.ports.len() - 1 { "" } else { ";" };
-                // When got to this point should be safe to unwrap
-                let a = self.sa.types.get(port.type_id).unwrap();
-                writeln!(
-                    f,
-                    "\t\t{}: {:?} {}{}",
-                    self.sym(port.name),
-                    port.mode,
-                    self.child(a),
-                    term
-                )?;
-            }
-            writeln!(f, "\t);")?;
-        }
-        writeln!(f, "end {};\n", unique_entity_name)?;
+//         writeln!(f, "entity {} is", unique_entity_name)?;
+//         if !inst.generics.is_empty() {
+//             writeln!(f, "\tgeneric (")?;
+//             let len = inst.generics.len();
+//             for (i, (name, val)) in inst.generics.iter().enumerate() {
+//                 let term = if i == len - 1 { "" } else { ";" };
+//                 // Generics omit mode (in/out) and append the resolved assignment (:= value)
+//                 writeln!(
+//                     f,
+//                     "\t\t{} : integer := {}{}",
+//                     self.sym(*name),
+//                     val.to_vhdl_string(&self.sa.symbols.interner),
+//                     term
+//                 )?;
+//             }
+//             writeln!(f, "\t);")?;
+//         }
+//         if !inst.ports.is_empty() {
+//             writeln!(f, "\tport (")?;
+//             for (i, port) in inst.ports.iter().enumerate() {
+//                 let term = if i == inst.ports.len() - 1 { "" } else { ";" };
+//                 // When got to this point should be safe to unwrap
+//                 let a = self.sa.types.get(port.type_id).unwrap();
+//                 writeln!(
+//                     f,
+//                     "\t\t{}: {:?} {}{}",
+//                     self.sym(port.name),
+//                     port.mode,
+//                     self.child(a),
+//                     term
+//                 )?;
+//             }
+//             writeln!(f, "\t);")?;
+//         }
+//         writeln!(f, "end {};\n", unique_entity_name)?;
 
-        writeln!(
-            f,
-            "architecture {} of {} is",
-            self.sym(inst.architecture_name),
-            unique_entity_name
-        )?;
+//         writeln!(
+//             f,
+//             "architecture {} of {} is",
+//             self.sym(inst.architecture_name),
+//             unique_entity_name
+//         )?;
 
-        for sig_id in &inst.local_signals {
-            let sig = &self.arena.signals[sig_id.0 as usize];
-            writeln!(
-                f,
-                "\tsignal {}: {};",
-                self.sym(sig.name),
-                self.child(self.sa.types.get(sig.type_id).unwrap())
-            )?;
-        }
+//         for sig_id in &inst.local_signals {
+//             let sig = &self.arena.signals[sig_id.0 as usize];
+//             writeln!(
+//                 f,
+//                 "\tsignal {}: {};",
+//                 self.sym(sig.name),
+//                 self.child(self.sa.types.get(sig.type_id).unwrap())
+//             )?;
+//         }
 
-        writeln!(f, "begin")?;
+//         writeln!(f, "begin")?;
 
-        for ca in &inst.concurrent_assignments {
-            write!(f, "{}", self.child_indented(ca))?;
-        }
+//         for ca in &inst.concurrent_assignments {
+//             write!(f, "{}", self.child_indented(ca))?;
+//         }
 
-        for proc_id in &inst.processes {
-            let proc = &self.arena.processes[proc_id.0 as usize];
-            write!(f, "{}", self.child_indented(proc))?;
-        }
+//         for proc_id in &inst.processes {
+//             let proc = &self.arena.processes[proc_id.0 as usize];
+//             write!(f, "{}", self.child_indented(proc))?;
+//         }
 
-        for child_id in &inst.children {
-            let child_node = &self.arena.instances[child_id.0 as usize];
-            let child_unique_entity = format!(
-                "{}_{}",
-                self.sym(child_node.entity_name),
-                // child_node.instance_name.0
-                "flat"
-            );
+//         for child_id in &inst.children {
+//             let child_node = &self.arena.instances[child_id.0 as usize];
+//             let child_unique_entity = format!(
+//                 "{}_{}",
+//                 self.sym(child_node.entity_name),
+//                 // child_node.instance_name.0
+//                 "flat"
+//             );
 
-            writeln!(
-                f,
-                "\t{} : entity work.{}",
-                self.sym(child_node.instance_name),
-                child_unique_entity
-            )?;
+//             writeln!(
+//                 f,
+//                 "\t{} : entity work.{}",
+//                 self.sym(child_node.instance_name),
+//                 child_unique_entity
+//             )?;
 
-            if !child_node.port_bindings.is_empty() {
-                writeln!(f, "\t\tport map (")?;
-                for (i, binding) in child_node.port_bindings.iter().enumerate() {
-                    let actual_sig = &self.arena.signals[binding.actual_signal.0 as usize];
-                    let term = if i == child_node.port_bindings.len() - 1 {
-                        ""
-                    } else {
-                        ","
-                    };
-                    writeln!(
-                        f,
-                        "\t\t\t{} => {}{}",
-                        self.sym(binding.port_name),
-                        self.sym(actual_sig.name),
-                        term
-                    )?;
-                }
-                writeln!(f, "\t\t);")?;
-            }
-        }
+//             if !child_node.port_bindings.is_empty() {
+//                 writeln!(f, "\t\tport map (")?;
+//                 for (i, binding) in child_node.port_bindings.iter().enumerate() {
+//                     let actual_sig = &self.arena.signals[binding.actual_signal.0 as usize];
+//                     let term = if i == child_node.port_bindings.len() - 1 {
+//                         ""
+//                     } else {
+//                         ","
+//                     };
+//                     writeln!(
+//                         f,
+//                         "\t\t\t{} => {}{}",
+//                         self.sym(binding.port_name),
+//                         self.sym(actual_sig.name),
+//                         term
+//                     )?;
+//                 }
+//                 writeln!(f, "\t\t);")?;
+//             }
+//         }
 
-        writeln!(f, "end {};\n", self.sym(inst.architecture_name))
-    }
-}
+//         writeln!(f, "end {};\n", self.sym(inst.architecture_name))
+//     }
+// }
 impl<'a> Display for ElaboratedFormatCtx<'a, TypeKind> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.item {
@@ -329,7 +343,6 @@ impl<'a> Display for ElaboratedFormatCtx<'a, TypeKind> {
             | TypeKind::Real { name }
             | TypeKind::Array { name, .. }
             | TypeKind::Record { name, .. }
-            | TypeKind::Function { name, .. }
             | TypeKind::Physical { name, .. } => {
                 write!(f, "{}", self.sym(*name))
             }
@@ -340,7 +353,7 @@ impl<'a> Display for ElaboratedFormatCtx<'a, TypeKind> {
 impl<'a> Display for ElaboratedFormatCtx<'a, ElaboratorError> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.item {
-            ElaboratorError::EntityNotFound(_) => todo!(),
+            ElaboratorError::EntityNotFound(s) => write!(f, "Entity {} not found!", s),
             ElaboratorError::ArchitectureNotFound(symbol_id) => todo!(),
             ElaboratorError::EvaluationFailed {
                 reason,
@@ -354,9 +367,29 @@ impl<'a> Display for ElaboratedFormatCtx<'a, ElaboratorError> {
                     self.get_position(*span, *file_id)
                 )
             }
-            ElaboratorError::BindingError { reason, span } => todo!(),
-            ElaboratorError::NotYetImplemented { feature, span } => todo!(),
-            ElaboratorError::SignalNotFound(_) => todo!(),
+            ElaboratorError::BindingError {
+                reason,
+                span,
+                file_id,
+            } => write!(
+                f,
+                "Binding error: {reason}, at {}:{}",
+                self.path[file_id.0 as usize],
+                self.get_position(*span, *file_id)
+            ),
+            ElaboratorError::NotYetImplemented {
+                feature,
+                span,
+                file_id,
+            } => {
+                write!(
+                    f,
+                    "{feature}, at {}:{}",
+                    self.path[file_id.0 as usize],
+                    self.get_position(*span, *file_id)
+                )
+            }
+            ElaboratorError::SignalNotFound(t) => write!(f, "Signal {t} not found!"),
             ElaboratorError::SymbolNotFound(_) => todo!(),
             ElaboratorError::NotAnEntity => todo!(),
             ElaboratorError::NoMatchingArchitectures(symbol_id) => write!(
@@ -476,14 +509,17 @@ impl<'a> VhdlEmitter<'a> {
                     path: &vec![],
                     source: &vec![],
                 };
-                writeln!(
+                write!(
                     out,
-                    "\t\t{}: {} {}{}",
+                    "\t\t{}: {} {}",
                     self.sa.symbols.interner.get(port.name),
                     port.mode,
-                    fm,
-                    term
+                    fm
                 )?;
+                if port.width() != 1 {
+                    write!(out, "({} downto {})", port.high_bound, port.low_bound)?;
+                }
+                writeln!(out, "{}", term)?;
             }
             writeln!(out, "\t);")?;
         }
@@ -507,12 +543,15 @@ impl<'a> VhdlEmitter<'a> {
                 path: &vec![],
                 source: &vec![],
             };
-            writeln!(
-                out,
-                "\tsignal {}: {};",
-                self.sa.symbols.interner.get(sig.name),
-                fm
-            )?;
+            let n = match &sig.optional_locality {
+                Some(x) => x,
+                None => &self.sa.get_str(sig.name).to_string(),
+            };
+            write!(out, "\tsignal {}: {}", n, fm)?;
+            if sig.width() != 1 {
+                write!(out, "({} downto {})", sig.high_bound, sig.low_bound)?;
+            }
+            writeln!(out, ";")?;
         }
 
         writeln!(out, "begin")?;
@@ -552,14 +591,13 @@ impl<'a> VhdlEmitter<'a> {
             writeln!(
                 out,
                 "\t{} : entity work.{}",
-                self.sa.symbols.interner.get(child_node.instance_name),
-                child_unique_entity
+                child_node.hierarchical_path, child_unique_entity
             )?;
 
             if !child_node.port_bindings.is_empty() {
                 writeln!(out, "\t\tport map (")?;
                 for (i, binding) in child_node.port_bindings.iter().enumerate() {
-                    let actual_sig = &self.arena.signals[binding.actual_signal.0 as usize];
+                    let actual_expr = &self.arena.exprs[binding.actual_signal.0 as usize];
                     let term = if i == child_node.port_bindings.len() - 1 {
                         ""
                     } else {
@@ -569,7 +607,14 @@ impl<'a> VhdlEmitter<'a> {
                         out,
                         "\t\t\t{} => {}{}",
                         self.sa.symbols.interner.get(binding.port_name),
-                        self.sa.symbols.interner.get(actual_sig.name),
+                        ElaboratedFormatCtx {
+                            item: actual_expr,
+                            arena: self.arena,
+                            sa: self.sa,
+                            indent: 0,
+                            path: &vec![],
+                            source: &vec![],
+                        },
                         term
                     )?;
                 }

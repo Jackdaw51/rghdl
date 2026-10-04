@@ -57,6 +57,7 @@ impl<'a> Display for FormatCtx<'a, ParseError> {
                     "A direct entity instantiation statement must have a label"
                 )
             }
+            crate::parser::ParseErrorKind::Error => todo!(),
         }?;
         write!(
             f,
@@ -175,6 +176,7 @@ impl<'a> Display for FormatCtx<'a, Expr> {
                 self.get_symbol(*unit)
             ),
             Expr::All => write!(f, "all"),
+            Expr::Open => write!(f,"open"),
         }
     }
 }
@@ -284,6 +286,8 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt> {
                 label,
                 condition,
                 stmts,
+                decls_start,
+                decls_end,
             } => {
                 write!(f, "{}: ", self.get_symbol(*label))?;
                 writeln!(f, "if {} generate", self.child(self.get_expr(*condition)))?;
@@ -291,6 +295,7 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt> {
                     write!(f, "{}", self.child_indented(i))?;
                 }
                 writeln!(f, "{}end generate;", self.pad())?;
+                todo!("{}{}",decls_start.0,decls_end.0);
                 Ok(())
             }
         }

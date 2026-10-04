@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use crate::analyzer::{DeclRef, SymbolId};
 use crate::ast::{AstArena, BinaryOp, Expr, ExprId, GetSpan, UnaryOp};
+use crate::printer::FormatCtx;
 use crate::{
     analyzer::{SemanticAnalyzer, SemanticError, SemanticErrorKind, TypeId, TypeKind},
     parser::Span,
@@ -39,6 +40,14 @@ impl<'a> SemanticAnalyzer<'a> {
                 self.infer_physical_literal(*value, *unit, expr_id)
             }
             Expr::All => todo!(),
+            Expr::Open => match expected_type {
+                Some(x) => Ok(x),
+                None => Err(SemanticError::new(
+                    SemanticErrorKind::OpenNotAllowedWithoutContext,
+                    self.span(expr_id),
+                    self.current_file,
+                )),
+            },
         }?;
         if (expr_id.0 as usize) >= self.expr_types.len() {
             self.expr_types
@@ -113,6 +122,8 @@ impl<'a> SemanticAnalyzer<'a> {
         whole_expr: ExprId,
     ) -> Result<TypeId, SemanticError> {
         let target_ty = self.infer_expr_type(target, expected_type)?;
+        dbg!();
+        self.print_expr(whole_expr);
 
         // Index bounds must evaluate to an integer or discrete type
         self.infer_expr_type(left, Some(self.type_integer))?;
@@ -127,6 +138,17 @@ impl<'a> SemanticAnalyzer<'a> {
                 self.current_file,
             )),
         }
+    }
+    pub fn print_expr(&self, expr_id: crate::ast::ExprId) {
+        let f = FormatCtx {
+            item: self.ast.expr(expr_id),
+            source: "",
+            symbols: &self.symbols.interner,
+            arena: self.ast,
+            indent: 0,
+            path: "",
+        };
+        println!("{f}");
     }
 
     fn infer_identifier(
@@ -148,6 +170,7 @@ impl<'a> SemanticAnalyzer<'a> {
                 ))
             }
         } else {
+            panic!("{}", self.get_str(sym));
             // The symbol was never declared in this scope at all.
             Err(SemanticError::new(
                 SemanticErrorKind::UndefinedSymbol,
@@ -333,55 +356,35 @@ impl<'a> SemanticAnalyzer<'a> {
         args: &std::ops::Range<u32>,
         whole_expr: ExprId,
     ) -> Result<TypeId, SemanticError> {
-        let target_ty = self.infer_expr_type(target, None)?;
         let arg_ids = &self.ast.expr_lists[args.start as usize..args.end as usize];
 
-        enum TargetKind {
-            Array(TypeId),
-            Function(Vec<TypeId>, TypeId),
-            TypeConversion(TypeId),
-            Invalid,
-        }
-
-        let target_kind = match self.types.get(target_ty) {
-            Some(TypeKind::Array { element_type, .. }) => TargetKind::Array(*element_type),
-            Some(TypeKind::Function {
-                args, return_type, ..
-            }) => TargetKind::Function(args.clone(), *return_type),
-            // Valid types used as target(...) represent VHDL type conversions
-            Some(_) => TargetKind::TypeConversion(target_ty),
-            None => TargetKind::Invalid,
+        let callee_expr = &self.ast.exprs[target.0 as usize];
+        let symbol_id = match callee_expr {
+            Expr::Identifier { name, .. } => *name,
+            _ => {
+                return Err(SemanticError::new(
+                    SemanticErrorKind::CannotIndexOrCallNonArray,
+                    self.span(target),
+                    self.current_file,
+                ));
+            }
         };
 
-        match target_kind {
-            TargetKind::Array(element_type) => {
-                if arg_ids.is_empty() {
-                    return Err(SemanticError::new(
-                        SemanticErrorKind::CannotIndexOrCallNonArray,
-                        self.span(whole_expr),
-                        self.current_file,
-                    ));
-                }
-                for &arg_id in arg_ids {
-                    self.infer_expr_type(arg_id, Some(self.type_integer))?;
-                }
-                Ok(element_type)
-            }
-            TargetKind::Function(expected_args, return_type) => {
-                if arg_ids.len() != expected_args.len() {
-                    return Err(SemanticError::new(
-                        SemanticErrorKind::AggregateSizeMismatch,
-                        self.span(whole_expr),
-                        self.current_file,
-                    ));
-                }
-                for (&arg_id, &expected_param_ty) in arg_ids.iter().zip(expected_args.iter()) {
-                    self.infer_expr_type(arg_id, Some(expected_param_ty))?;
-                }
-                Ok(return_type)
-            }
-            TargetKind::TypeConversion(target_type) => {
-                // VHDL type conversions take exactly one argument: TargetType(expr)
+        let decl = self
+            .symbols
+            .lookup(self.current_scope, symbol_id)
+            .ok_or_else(|| {
+                SemanticError::new(
+                    SemanticErrorKind::UndefinedSymbol,
+                    self.span(target),
+                    self.current_file,
+                )
+            })?;
+
+        // Disambiguate based on Symbol Declaration
+        match decl {
+            // type conversion like e.g. std_logic_vector(val)
+            DeclRef::Type(target_type) => {
                 if arg_ids.len() != 1 {
                     return Err(SemanticError::new(
                         SemanticErrorKind::CannotIndexOrCallNonArray,
@@ -389,10 +392,64 @@ impl<'a> SemanticAnalyzer<'a> {
                         self.current_file,
                     ));
                 }
+                // Infer argument without context type (or check convertibility)
                 self.infer_expr_type(arg_ids[0], None)?;
                 Ok(target_type)
             }
-            TargetKind::Invalid => Err(SemanticError::new(
+
+            // function call
+            DeclRef::Function {
+                return_type,
+                param_types,
+            } => {
+                let start = param_types.start as usize;
+                let expected_len = (param_types.end - param_types.start) as usize;
+
+                if arg_ids.len() != expected_len {
+                    return Err(SemanticError::new(
+                        SemanticErrorKind::AggregateSizeMismatch,
+                        self.span(whole_expr),
+                        self.current_file,
+                    ));
+                }
+
+                for (i, &arg_id) in arg_ids.iter().enumerate() {
+                    let expected_param_ty = self.symbols.interner.param_type_list[start + i];
+                    self.infer_expr_type(arg_id, Some(expected_param_ty))?;
+                }
+
+                Ok(return_type)
+            }
+
+            // array indexing liek e.g. signal_bus(i)
+            DeclRef::Signal { type_id, .. }
+            | DeclRef::Variable { type_id, .. }
+            | DeclRef::Constant { type_id, .. }
+            | DeclRef::Port { type_id, .. } => {
+                let t = self.types.get(type_id).cloned();
+                match t {
+                    Some(TypeKind::Array { element_type, .. }) => {
+                        if arg_ids.is_empty() {
+                            return Err(SemanticError::new(
+                                SemanticErrorKind::CannotIndexOrCallNonArray,
+                                self.span(whole_expr),
+                                self.current_file,
+                            ));
+                        }
+                        for &arg_id in arg_ids {
+                            self.infer_expr_type(arg_id, Some(self.type_integer))?;
+                        }
+                        Ok(element_type)
+                    }
+                    _ => Err(SemanticError::new(
+                        SemanticErrorKind::CannotIndexOrCallNonArray,
+                        self.span(whole_expr),
+                        self.current_file,
+                    )),
+                }
+            }
+
+            _ => Err(SemanticError::new(
                 SemanticErrorKind::CannotIndexOrCallNonArray,
                 self.span(whole_expr),
                 self.current_file,

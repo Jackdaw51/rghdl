@@ -103,6 +103,10 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(self.alloc_expr(Expr::Others, token.span))
             }
+            TokenKind::KwOpen => {
+                self.advance();
+                Ok(self.alloc_expr(Expr::Open, token.span))
+            }
 
             // Grouping (Parentheses)
             TokenKind::LParen => {
@@ -223,7 +227,7 @@ impl<'a> Parser<'a> {
             let second_expr = self.parse_expression()?;
             let end = self.lexer.current_pos - 1;
             self.expect(TokenKind::RParen)?;
-            
+
             return Ok(self.alloc_expr(
                 Expr::Slice {
                     target,
@@ -234,7 +238,7 @@ impl<'a> Parser<'a> {
                 Span::new(start, end),
             ));
         }
-        
+
         let mut args = Vec::new();
         args.push(first_expr);
         while self.next_is(TokenKind::Comma) {
@@ -369,7 +373,8 @@ mod tests {
         // let source = "(b\"10101010\" + '1') or not (status_reg.flags(i) and mask /= x\"00\")";
         // let source = "status_reg.flags(i) and mask /= x\"00\"";
         // let source = "status_reg.flags(i)";
-        let source = "peak_freq_hz & peak_freq_tenths & std_logic_vector(to_unsigned(second_counter, 12))";
+        let source =
+            "peak_freq_hz & peak_freq_tenths & std_logic_vector(to_unsigned(second_counter, 12))";
         let mut parser = Parser::new(source, &mut interner);
         let a = parser.parse_expression();
 

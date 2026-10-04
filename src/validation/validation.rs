@@ -1,9 +1,9 @@
 use std::{collections::HashMap, process::Command};
 
 use crate::{
-    analyzer::{DeclRef, ScopeId, SemanticAnalyzer},
+    analyzer::{DeclRef, ScopeId, SemanticAnalyzer, TypeId},
     ast::{ContextItem, Entity, EntityId, Expr, Port, PortMode},
-    elaborator::ElaboratedArena,
+    elaborator::{ElaboratedArena, ElaboratedDesign, ElaboratedPort, InstanceId},
     workspace::FileId,
 };
 
@@ -89,6 +89,7 @@ pub fn run_all_equivalence_testbenches(
     args.push(&normal);
     args.push(&flat);
     args.push(&tb);
+    dbg!(&args);
     let output = Command::new("ghdl").args(args).output()?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -136,12 +137,29 @@ pub fn run_all_equivalence_testbenches(
     Ok(())
 }
 // /// Helper to resolve the type string directly from the AST port type expression.
-fn get_port_type_name<'a>(sa: &'a SemanticAnalyzer<'a>, port: &Port, file_id: FileId) -> &'a str {
+fn get_port_type_name<'a>(
+    sa: &'a SemanticAnalyzer<'a>,
+    port: &Port,
+    elab: &ElaboratedPort,
+    file_id: FileId,
+) -> String {
     let ast = sa.get_ast(file_id);
+
     let expr = &ast.exprs[port.port_type.0 as usize];
     match expr {
-        Expr::Identifier { name } => sa.get_str(*name),
-        _ => "std_logic",
+        Expr::Identifier { name } => sa.get_str(*name).to_string(),
+        Expr::Slice {
+            target,
+            direction,
+            left,
+            right,
+        } => {
+            format!(
+                "std_logic_vector ({} downto {})",
+                elab.high_bound, elab.low_bound
+            )
+        }
+        _ => "std_logic".to_string(),
     }
 }
 
@@ -171,11 +189,19 @@ fn generate_context_header(sa: &SemanticAnalyzer) -> String {
     header
 }
 
+struct InputPortInfo {
+    name: String,
+    type_str: String,
+    type_id: TypeId,
+    width: usize,
+}
+
 /// Generates a VHDL file containing equivalence testbenches for ALL entities in the AST.
 pub fn generate_all_equivalence_testbenches(
     arena: &ElaboratedArena,
     sa: &SemanticAnalyzer,
     top_entity: &str,
+    top_instance: InstanceId,
 ) -> String {
     let mut full_tb_code = String::new();
     let file_id = FileId(0);
@@ -196,7 +222,8 @@ pub fn generate_all_equivalence_testbenches(
     };
 
     full_tb_code.push_str(&generate_context_header(sa));
-    let single_tb = generate_single_entity_tb(top_entity_id, top_e_file_id, arena, sa);
+    let single_tb =
+        generate_single_entity_tb(top_entity_id, top_e_file_id, top_instance, sa, &arena);
     full_tb_code.push_str(&single_tb);
     full_tb_code.push_str("\n-- ========================================================\n\n");
 
@@ -206,8 +233,9 @@ pub fn generate_all_equivalence_testbenches(
 fn generate_single_entity_tb(
     entity_id: EntityId,
     file_id: FileId,
-    _arena: &ElaboratedArena,
+    design: InstanceId,
     sa: &SemanticAnalyzer,
+    arena: &ElaboratedArena,
 ) -> String {
     let ast = sa.get_ast(file_id);
     let entity = &ast.entities[entity_id.0 as usize];
@@ -247,14 +275,21 @@ fn generate_single_entity_tb(
     let mut flat_port_maps: HashMap<&str, String> =
         target_archs.iter().map(|&a| (a, String::new())).collect();
 
-    let mut input_ports: Vec<(String, String)> = Vec::new();
+    let mut input_ports: Vec<InputPortInfo> = Vec::new();
     let mut output_ports: Vec<(String, String)> = Vec::new();
 
     let ports = &ast.ports[entity.ports_start.0 as usize..entity.ports_end.0 as usize];
 
-    for port in ports {
+    let a = &arena.instances[design.0 as usize].ports;
+
+    for (port, elab) in ports.iter().zip(a) {
         let port_name = sa.get_str(port.name);
-        let type_str = get_port_type_name(sa, port, file_id);
+        let type_str = get_port_type_name(sa, port, elab, file_id);
+        let width = if elab.type_id == sa.type_std_logic_vector {
+            (elab.high_bound - elab.low_bound).abs() as usize + 1
+        } else {
+            1
+        };
 
         match port.mode {
             PortMode::In => {
@@ -269,7 +304,12 @@ fn generate_single_entity_tb(
                         .unwrap()
                         .push_str(&format!("        {} => {},\n", port_name, port_name));
                 }
-                input_ports.push((port_name.to_string(), type_str.to_string()));
+                input_ports.push(InputPortInfo {
+                    name: port_name.to_string(),
+                    type_str,
+                    type_id: elab.type_id,
+                    width,
+                });
             }
             PortMode::Out | PortMode::InOut | PortMode::Buffer => {
                 for arch in &target_archs {
@@ -323,40 +363,46 @@ fn generate_single_entity_tb(
     }
 
     let mut stimulus_process = String::new();
-    let num_inputs = input_ports.len();
 
-    if num_inputs > 0 {
-        let num_vectors = 1 << num_inputs.min(8);
+    if !input_ports.is_empty() {
+        // e.g. 2 vectors of 4 bits = 8 bits total
+        let total_bits: usize = input_ports.iter().map(|p| p.width).sum();
+        let num_vectors = 1 << total_bits.min(9);
 
         for vec in 0..num_vectors {
             stimulus_process.push_str(&format!("        -- Stimulus Vector {}\n", vec));
 
-            for (idx, (in_name, type_str)) in input_ports.iter().enumerate() {
-                let is_bit_high = (vec & (1 << idx)) != 0;
-                let val_str = match type_str.as_str() {
-                    "boolean" => {
-                        if is_bit_high {
-                            "true"
-                        } else {
-                            "false"
-                        }
+            let mut bit_offset = 0;
+            for port in &input_ports {
+                let val_str = if port.type_id == sa.type_std_logic_vector {
+                    // Extract port.width bits from vec starting at bit_offset
+                    let mut bin_str = String::with_capacity(port.width);
+                    for b in (0..port.width).rev() {
+                        let bit_val = (vec >> (bit_offset + b)) & 1;
+                        bin_str.push(if bit_val == 1 { '1' } else { '0' });
                     }
-                    "integer" => {
-                        if is_bit_high {
-                            "1"
-                        } else {
-                            "0"
-                        }
+                    format!("\"{}\"", bin_str) // Double quotes for std_logic_vector
+                } else if port.type_id == sa.type_boolean {
+                    let bit_val = (vec >> bit_offset) & 1;
+                    if bit_val == 1 {
+                        "true".to_string()
+                    } else {
+                        "false".to_string()
                     }
-                    _ => {
-                        if is_bit_high {
-                            "'1'"
-                        } else {
-                            "'0'"
-                        }
+                } else if port.type_id == sa.type_integer {
+                    let bit_val = (vec >> bit_offset) & 1;
+                    bit_val.to_string()
+                } else {
+                    let bit_val = (vec >> bit_offset) & 1;
+                    if bit_val == 1 {
+                        "'1'".to_string()
+                    } else {
+                        "'0'".to_string()
                     }
                 };
-                stimulus_process.push_str(&format!("        {} <= {};\n", in_name, val_str));
+
+                stimulus_process.push_str(&format!("        {} <= {};\n", port.name, val_str));
+                bit_offset += port.width;
             }
 
             stimulus_process.push_str("        wait for 10 ns;\n");

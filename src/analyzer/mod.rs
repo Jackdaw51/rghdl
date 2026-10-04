@@ -18,6 +18,11 @@ use crate::workspace::FileId;
 pub struct TypeId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeId(pub u32);
+impl Default for ScopeId {
+    fn default() -> Self {
+        Self(0)
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymbolId(pub u32);
 
@@ -61,7 +66,9 @@ pub enum SemanticErrorKind {
     NonExistingSymbolInPackage(SymbolId),
     PositionalPortAssociationOutOfBounds,
     EntitySpecifiedNotFound,
-    HasToBeIntegerOrDerived
+    HasToBeIntegerOrDerived,
+    HasToBeStatic,
+    OpenNotAllowedWithoutContext,
 }
 
 #[derive(Debug, Clone)]
@@ -119,8 +126,6 @@ impl<'a> SemanticAnalyzer<'a> {
         }
         return Ok(());
     }
-    
-
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,8 +146,8 @@ pub enum DeclRef {
         type_id: TypeId,
         mode: PortMode,
     },
-    Generate{
-        scope_id: ScopeId
+    Generate {
+        scope_id: ScopeId,
     },
     Signal {
         id: DeclId,
@@ -160,7 +165,10 @@ pub enum DeclRef {
         id: DeclId,
     },
     Type(TypeId),
-    Function(TypeId),
+    Function {
+        return_type: TypeId,
+        param_types: Range<u32>,
+    },
     Implicit(TypeId),
     Instance {
         name: SymbolId,
@@ -192,6 +200,7 @@ pub struct SymbolInterner {
     map: HashMap<String, SymbolId>,
     pub vec: Vec<String>,
     symbol_list: Vec<SymbolId>,
+    param_type_list: Vec<TypeId>,
 }
 pub struct SymbolTable {
     pub scopes: ScopeArena,
@@ -226,12 +235,6 @@ pub enum TypeKind {
     Record {
         name: SymbolId,
         fields: HashMap<SymbolId, TypeId>,
-    },
-
-    Function {
-        name: SymbolId,
-        args: Vec<TypeId>,
-        return_type: TypeId,
     },
     Physical {
         name: SymbolId,

@@ -84,6 +84,7 @@ pub enum TokenKind {
     KwAfter,
     KwFor,
     KwGenerate,
+    KwOpen,
 
     OpAssign,            // :=
     OpArrow,             // => (Port mapping)
@@ -151,7 +152,8 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("map", TokenKind::KwMap),
     ("after", TokenKind::KwAfter),
     ("for", TokenKind::KwFor),
-    ("generate", TokenKind::KwGenerate)
+    ("generate", TokenKind::KwGenerate),
+    ("open", TokenKind::KwOpen)
 ];
 impl Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -227,6 +229,7 @@ impl Display for TokenKind {
             TokenKind::KwAfter => "after",
             TokenKind::KwFor => "for",
             TokenKind::KwGenerate => "generate",
+            TokenKind::KwOpen => "open",
         };
         write!(f, "{}", s)
     }
@@ -339,4 +342,5 @@ pub enum ParseErrorKind {
     NotYetImplemented {
         token_kind: TokenKind
     },
+    Error,
 }

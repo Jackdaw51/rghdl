@@ -1,4 +1,6 @@
-use crate::analyzer::{SymbolId, SymbolInterner};
+use std::ops::Range;
+
+use crate::analyzer::{SymbolId, SymbolInterner, TypeId};
 
 impl SymbolInterner {
     /// Returns the symbol if it's present in the map, otherwise inserts it and returns its Id
@@ -17,6 +19,13 @@ impl SymbolInterner {
     pub fn get_symbol(&self, name: &str) -> Option<SymbolId> {
         let normalized = name.to_lowercase();
         self.map.get(&normalized).copied()
+    }
+
+    pub fn alloc_param_types(&mut self, types: &[TypeId]) -> Range<u32> {
+        let start = self.param_type_list.len() as u32;
+        self.param_type_list.extend_from_slice(types);
+        let end = self.param_type_list.len() as u32;
+        start..end
     }
 
     pub(crate) fn iter(&self) -> std::slice::Iter<'_, String> {
