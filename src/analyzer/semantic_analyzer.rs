@@ -36,13 +36,6 @@ impl<'a> super::SemanticAnalyzer<'a> {
         let type_real = registry.get_type("std", "standard", "real").unwrap();
         let type_time = registry.get_type("std", "standard", "time").unwrap();
         // let type_positive = registry.get_type("std", "standard", "positive").unwrap();
-        let type_std_logic = registry
-            .get_type("ieee", "std_logic_1164", "std_logic")
-            .unwrap();
-        let type_std_logic_vector = registry
-            .get_type("ieee", "std_logic_1164", "std_logic_vector")
-            .unwrap();
-
         // Notice we DO NOT import ieee.std_logic_1164 here.
         // The analyzer must wait until it parses a ContextItem::Use { path: "ieee.std_logic_1164.all" }
         // before looping through ieee_pkg and injecting them into the current file's scope.
@@ -55,14 +48,14 @@ impl<'a> super::SemanticAnalyzer<'a> {
             types: registry.types.clone(),
             current_scope: root_scope,
             errors: Vec::new(),
-            type_std_logic,
-            type_std_logic_vector,
             type_integer,
             type_boolean,
             type_real,
             type_time,
             entity_architectures: HashMap::new(),
             expr_types: Vec::new(),
+            type_std_logic_vector: None,
+            type_std_logic: None,
         }
     }
     pub fn set_active_file(&mut self, file_id: FileId) -> FileId {
@@ -149,8 +142,8 @@ impl<'a> super::SemanticAnalyzer<'a> {
         }
         parts.reverse();
 
-        let lib_name = parts[0];
-        let pkg_name = parts[1];
+        let lib_name = &parts[0].to_string();
+        let pkg_name = &parts[1].to_string();
         let selector = parts[2];
 
         let pkg = match registry.get_package(lib_name, pkg_name) {
@@ -217,6 +210,10 @@ impl<'a> super::SemanticAnalyzer<'a> {
                 ));
             }
         }
+        if lib_name == "ieee" && pkg_name == "std_logic_1164" {
+            self.type_std_logic = self.fetch_std_l_type();
+            self.type_std_logic_vector = self.fetch_std_l_vector_type();
+        }
     }
 
     fn analyze_entity(&mut self, entity: &Entity, entity_id: u32, registry: &LibraryRegistry) {
@@ -225,12 +222,6 @@ impl<'a> super::SemanticAnalyzer<'a> {
             .symbols
             .scopes
             .alloc(ScopeKind::Entity, Some(self.current_scope));
-
-        let context_items =
-            &self.ast.contexts[entity.contexts.start as usize..entity.contexts.end as usize];
-        for item in context_items {
-            self.analyze_context_items(item, registry);
-        }
 
         if let Err(_s) = self.symbols.define(
             self.current_scope,
@@ -250,6 +241,11 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
         let prev_scope = self.current_scope;
         self.current_scope = entity_scope;
+        let context_items =
+            &self.ast.contexts[entity.contexts.start as usize..entity.contexts.end as usize];
+        for item in context_items {
+            self.analyze_context_items(item, registry);
+        }
 
         // dbg!(&self.ast.decls[entity.generics_start.0 as usize..entity.generics_end.0 as usize]);
         self.analyze_declarations(entity.generics_start, entity.generics_end, entity_scope);
@@ -1158,7 +1154,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
                 }
             }
             let sym = self.get_base_stripped(formal).unwrap();
-            if self.symbols.define(prev_scope, sym, formal_decl).is_err(){
+            if self.symbols.define(prev_scope, sym, formal_decl).is_err() {
                 panic!()
             };
         }

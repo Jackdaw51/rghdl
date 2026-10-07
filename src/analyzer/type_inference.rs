@@ -170,7 +170,6 @@ impl<'a> SemanticAnalyzer<'a> {
                 ))
             }
         } else {
-            panic!("{}", self.get_str(sym));
             // The symbol was never declared in this scope at all.
             Err(SemanticError::new(
                 SemanticErrorKind::UndefinedSymbol,
@@ -201,7 +200,8 @@ impl<'a> SemanticAnalyzer<'a> {
                     return Ok(expected);
                 }
             }
-            return Ok(self.type_std_logic_vector);
+            // it's a std_logic_vector, so
+            return self.get_std_l_vector_type(expr_id);
         }
 
         // Character Literals: '0', '1', 'Z', 'X'
@@ -209,7 +209,8 @@ impl<'a> SemanticAnalyzer<'a> {
             if let Some(expected) = expected_type {
                 return Ok(expected);
             }
-            return Ok(self.type_std_logic);
+            //it's a std_logic
+            return self.get_std_l_type(expr_id);
         }
 
         // Real / Floating Point Literals: 3.14
@@ -234,6 +235,72 @@ impl<'a> SemanticAnalyzer<'a> {
         ))
     }
 
+    fn get_std_l_vector_type(&self, expr_id: ExprId) -> Result<TypeId, SemanticError> {
+        let sym = self
+            .symbols
+            .interner
+            .map
+            .get(&"std_logic_vector".to_string())
+            .expect("If not here, check library registry initializatioin");
+        let a = self.symbols.lookup(self.current_scope, *sym);
+        let Some(DeclRef::Type(a)) = a else {
+            return Err(SemanticError::new(
+                SemanticErrorKind::UnknownType,
+                self.span(expr_id),
+                self.current_file,
+            ));
+        };
+        Ok(a)
+    }
+    // function called from elaborator
+    pub(crate) fn fetch_std_l_vector_type(&self) -> Option<TypeId> {
+        let sym = self
+            .symbols
+            .interner
+            .map
+            .get(&"std_logic_vector".to_string())
+            .expect("If not here, check library registry initializatioin");
+        let a = self.symbols.lookup(self.current_scope, *sym);
+        let Some(DeclRef::Type(a)) = a else {
+            return None;
+        };
+        Some(a)
+    }
+    // function called from elaborator
+    pub(crate) fn fetch_std_l_type(&self) -> Option<TypeId> {
+        let sym = self
+            .symbols
+            .interner
+            .map
+            .get(&"std_logic".to_string())
+            .expect("If not here, check library registry initializatioin");
+        let a = self.symbols.lookup(self.current_scope, *sym);
+
+        let Some(DeclRef::Type(a)) = a else {
+            return None;
+        };
+        Some(a)
+    }
+
+    fn get_std_l_type(&mut self, expr_id: ExprId) -> Result<TypeId, SemanticError> {
+        let sym = self
+            .symbols
+            .interner
+            .map
+            .get(&"std_logic".to_string())
+            .expect("If not here, check library registry initializatioin");
+        let a = self.symbols.lookup(self.current_scope, *sym);
+        let Some(DeclRef::Type(a)) = a else {
+            dbg!(self.get_str(*sym));
+            return Err(SemanticError::new(
+                SemanticErrorKind::UnknownType,
+                self.span(expr_id),
+                self.current_file,
+            ));
+        };
+        Ok(a)
+    }
+
     fn infer_unary(
         &mut self,
         op: UnaryOp,
@@ -242,17 +309,26 @@ impl<'a> SemanticAnalyzer<'a> {
         whole_expr: ExprId,
     ) -> Result<TypeId, SemanticError> {
         let operand_ty = self.infer_expr_type(expr, expected_type)?;
-
+        let a = self
+            .symbols
+            .interner
+            .map
+            .get(&"std_logic_vector".to_string())
+            .unwrap();
+        let type_std_logic = self.symbols.lookup(self.current_scope, *a).map(|f| {
+            let DeclRef::Type(a) = f else { panic!() };
+            a
+        });
         match op {
             UnaryOp::Not => {
-                if operand_ty == self.type_boolean || operand_ty == self.type_std_logic {
+                if operand_ty == self.type_boolean || Some(operand_ty) == type_std_logic {
                     Ok(operand_ty)
                 } else {
                     // Also allow Arrays of bits/booleans (e.g. std_logic_vector)
                     match self.types.get(operand_ty) {
                         Some(TypeKind::Array { element_type, .. })
                             if *element_type == self.type_boolean
-                                || *element_type == self.type_std_logic =>
+                                || Some(*element_type) == type_std_logic =>
                         {
                             Ok(operand_ty)
                         }

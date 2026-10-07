@@ -285,7 +285,7 @@ fn generate_single_entity_tb(
     for (port, elab) in ports.iter().zip(a) {
         let port_name = sa.get_str(port.name);
         let type_str = get_port_type_name(sa, port, elab, file_id);
-        let width = if elab.type_id == sa.type_std_logic_vector {
+        let width = if Some(elab.type_id) == sa.type_std_logic_vector {
             (elab.high_bound - elab.low_bound).abs() as usize + 1
         } else {
             1
@@ -374,7 +374,7 @@ fn generate_single_entity_tb(
 
             let mut bit_offset = 0;
             for port in &input_ports {
-                let val_str = if port.type_id == sa.type_std_logic_vector {
+                let val_str = if Some(port.type_id) == sa.type_std_logic_vector {
                     // Extract port.width bits from vec starting at bit_offset
                     let mut bin_str = String::with_capacity(port.width);
                     for b in (0..port.width).rev() {

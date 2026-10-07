@@ -98,12 +98,12 @@ pub struct SemanticAnalyzer<'a> {
     pub current_scope: ScopeId,
     pub errors: Vec<SemanticError>,
 
-    pub type_std_logic: TypeId,
-    pub type_std_logic_vector: TypeId,
     pub type_integer: TypeId,
     pub type_boolean: TypeId,
     pub type_real: TypeId,
     pub type_time: TypeId,
+    pub type_std_logic_vector: Option<TypeId>,
+    pub type_std_logic: Option<TypeId>,
     pub entity_architectures: HashMap<(EntityId, FileId), Vec<DeclRef>>,
     pub expr_types: Vec<TypeId>,
 }
@@ -252,7 +252,6 @@ impl<'a> Debug for SemanticAnalyzer<'a> {
             .field("\ntypes", &self.types)
             .field("\ncurrent_scope", &self.current_scope)
             .field("\nerrors", &self.errors)
-            .field("\ntype_std_logic", &self.type_std_logic)
             .field("\ntype_integer", &self.type_integer)
             .finish()
     }

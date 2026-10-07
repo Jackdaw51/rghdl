@@ -420,9 +420,8 @@ impl<'a> Elaborator<'a> {
             let sig = &self.arena.signals[sig_id.0 as usize];
 
             // Check if type is unresolved (integer, boolean, bit, real...), because std_logic and std_logic_vector can have multiple drivers
-
-            let is_resolved = sig.type_id == self.sa.type_std_logic
-                || sig.type_id == self.sa.type_std_logic_vector;
+            let is_resolved =
+                Some(sig.type_id) == self.sa.type_std_logic || Some(sig.type_id) == self.sa.type_std_logic_vector;
 
             if !is_resolved && sig.driver_count > 1 {
                 let sig_name = self.sa.symbols.interner.get(sig.name);
@@ -1772,7 +1771,7 @@ impl<'a> Elaborator<'a> {
         env: &Environment,
     ) -> Result<(i64, i64), ElaboratorError> {
         let type_id = self.get_type_from_expr(expr_id);
-        if type_id == self.sa.type_std_logic
+        if Some(type_id) == self.sa.type_std_logic
             || type_id == self.sa.type_boolean
             || type_id == self.sa.type_real
         {
@@ -1782,7 +1781,8 @@ impl<'a> Elaborator<'a> {
         if type_id == self.sa.type_integer {
             return Ok((i32::MAX as i64, i32::MIN as i64));
         }
-
+        dbg!(self.sa.type_std_logic);
+        dbg!(&self.sa.types.get(type_id));
         match self.sa.types.get(type_id) {
             Some(TypeKind::Array { element_type, name }) => {
                 // dbg!(self.get_str(*name));
@@ -1811,11 +1811,14 @@ impl<'a> Elaborator<'a> {
 
                 Ok((slice_high, slice_low))
             } // TODO
-            _ => Err(ElaboratorError::NotYetImplemented {
-                feature: "Other kinds of types".to_string(),
-                span: self.sa.get_ast(self.file_id).span(expr_id),
-                file_id: self.file_id,
-            }),
+            _ => {
+                panic!();
+                Err(ElaboratorError::NotYetImplemented {
+                    feature: "Other kinds of types".to_string(),
+                    span: self.sa.get_ast(self.file_id).span(expr_id),
+                    file_id: self.file_id,
+                })
+            }
         }
     }
 
@@ -1826,8 +1829,14 @@ impl<'a> Elaborator<'a> {
         let clean = self.get_str(name);
         dbg!(clean);
         match clean {
-            "std_logic" => Ok(self.sa.type_std_logic),
-            "std_logic_vector" => Ok(self.sa.type_std_logic_vector),
+            "std_logic" => Ok(self
+                .sa
+                .type_std_logic
+                .expect("Was checked existing by the SA")),
+            "std_logic_vector" => Ok(self
+                .sa
+                .type_std_logic_vector
+                .expect("Was checked existing by the SA")),
             "integer" => Ok(self.sa.type_integer),
             "boolean" => Ok(self.sa.type_boolean),
             "real" => Ok(self.sa.type_real),
