@@ -19,3 +19,24 @@ architecture rtl of nand2 is
 begin
     y <= not (a and b) after tpd;
 end architecture rtl;
+
+-- Add other types for std_logic
+
+-- Show driver contention on unresolved type
+library ieee;
+use ieee.std_logic_1164.all;
+entity d_contention is
+    generic (
+        tpd : time := 1 ns
+    );
+    port (
+        a, b : in std_logic;
+        y : out integer
+    );
+end entity d_contention;
+
+architecture rtl of d_contention is
+begin
+    y <= 67;
+    y <= 68;
+end architecture rtl;

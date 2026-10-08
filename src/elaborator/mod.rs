@@ -67,7 +67,8 @@ impl ElaboratedPort {
         if self.high_bound < self.low_bound {
             0
         } else {
-            (self.high_bound - self.low_bound + 1) as usize
+            let a = (self.high_bound - self.low_bound + 1) as usize;
+            if a < 1073741824 { a } else { 1 }
         }
     }
 }

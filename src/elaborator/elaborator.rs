@@ -152,7 +152,8 @@ impl<'a> Elaborator<'a> {
             &mut local_signals,
         )?;
 
-        self.validate_signal_drivers(&local_signals)?;
+        let slice = local_env.signals.values().map(|f| *f);
+        self.validate_signal_drivers(slice)?;
 
         let node = InstanceNode {
             instance_name,
@@ -196,7 +197,7 @@ impl<'a> Elaborator<'a> {
                 } => {
                     let target_sig = self.lower_expr(*target, local_env)?;
                     self.register_signal_driver(target_sig, ast.span(*target))?;
-                    // dbg!(self.sa.expr_types[sig.type_id.0 as usize]);
+                    // dbg!(&self.arena.exprs[target_sig.0 as usize]);
                     let expr_id = self.lower_expr(*expression, &*local_env)?;
                     let delay_expr = after
                         .map(|delay_ast_id| self.lower_expr(delay_ast_id, &*local_env))
@@ -415,13 +416,17 @@ impl<'a> Elaborator<'a> {
         })
     }
 
-    fn validate_signal_drivers(&self, local_signals: &[SignalId]) -> Result<(), ElaboratorError> {
-        for &sig_id in local_signals {
+    fn validate_signal_drivers(
+        &self,
+        local_signals: impl Iterator<Item = SignalId>,
+    ) -> Result<(), ElaboratorError> {
+        for sig_id in local_signals {
             let sig = &self.arena.signals[sig_id.0 as usize];
+            dbg!(self.get_str(sig.name));
 
             // Check if type is unresolved (integer, boolean, bit, real...), because std_logic and std_logic_vector can have multiple drivers
-            let is_resolved =
-                Some(sig.type_id) == self.sa.type_std_logic || Some(sig.type_id) == self.sa.type_std_logic_vector;
+            let is_resolved = Some(sig.type_id) == self.sa.type_std_logic
+                || Some(sig.type_id) == self.sa.type_std_logic_vector;
 
             if !is_resolved && sig.driver_count > 1 {
                 let sig_name = self.sa.symbols.interner.get(sig.name);
@@ -527,6 +532,7 @@ impl<'a> Elaborator<'a> {
             match local_env.signals.get(&sym) {
                 Some(&existing_sig_id) => {
                     dbg!(existing_sig_id);
+                    panic!()
                 }
                 None => {
                     let new_sig_id = self.arena.alloc_signal(
