@@ -206,6 +206,10 @@ end struct;
 library ieee;
 use ieee.std_logic_1164.all;
 entity ripple_adder_top_flat is
+	generic (
+		width : integer := 8;
+		tpd : integer := 2000000
+	);
 	port (
 		in1: in std_logic_vector(7 downto 0);
 		in2: in std_logic_vector(7 downto 0);

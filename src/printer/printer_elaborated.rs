@@ -480,10 +480,12 @@ impl<'a> VhdlEmitter<'a> {
 
         writeln!(out, "entity {} is", unique_entity_name)?;
 
-        if !inst.generics.is_empty() {
+        let generics = inst.local_env.generics();
+
+        if !generics.is_empty() {
             writeln!(out, "\tgeneric (")?;
-            let len = inst.generics.len();
-            for (i, (name, val)) in inst.generics.iter().enumerate() {
+            let len = generics.len();
+            for (i, (name, val)) in generics.iter().enumerate() {
                 let term = if i == len - 1 { "" } else { ";" };
                 writeln!(
                     out,

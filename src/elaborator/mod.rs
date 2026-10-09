@@ -163,14 +163,15 @@ pub struct InstanceNode {
     pub entity_name: SymbolId,
     pub architecture_name: SymbolId,
     pub hierarchical_path: String,
-    pub generics: HashMap<SymbolId, EvaluatedValue>,
+    // pub generics: HashMap<SymbolId, EvaluatedValue>,
     pub ports: Vec<ElaboratedPort>,
     pub port_bindings: Vec<PortBinding>,
     pub local_signals: Vec<SignalId>,
-    pub local_constants: HashMap<SymbolId, EvaluatedValue>,
+    // pub local_constants: HashMap<SymbolId, EvaluatedValue>,
     pub concurrent_assignments: Vec<ElaboratedConcurrentAssignment>,
     pub processes: Vec<ProcessId>,
     pub children: Vec<InstanceId>,
+    pub local_env: Environment,
 }
 
 #[derive(Debug, Clone)]
@@ -264,15 +265,17 @@ pub enum ElaboratorError {
 #[derive(Debug, Clone, Default)]
 pub struct Environment {
     /// Tracks compile-time constants and evaluated generic values
-    pub constants: HashMap<SymbolId, EvaluatedValue>,
+    constants: HashMap<SymbolId, EvaluatedValue>,
 
     /// Maps a local AST symbol (like 'clk') to the physical wire in the ElaboratedArena
-    pub signals: HashMap<SymbolId, SignalId>,
+    signals: HashMap<SymbolId, SignalId>,
 
     /// Local variables inside processes or loop frames
-    pub variables: HashMap<SymbolId, EvaluatedValue>,
+    variables: HashMap<SymbolId, EvaluatedValue>,
 
-    pub components: HashMap<SymbolId, ComponentSignature>,
+    components: HashMap<SymbolId, ComponentSignature>,
+
+    generic_overrides: HashMap<SymbolId, EvaluatedValue>,
 
     current_scope: ScopeId,
 }

@@ -91,7 +91,6 @@ impl<'a> Elaborator<'a> {
                 top_entity_sym,
                 top_entity_decl,
                 arch_decl,
-                &HashMap::new(),
                 &root_path,
                 &mut env,
             )?;
@@ -112,13 +111,13 @@ impl<'a> Elaborator<'a> {
         instance_name: SymbolId,
         entity_decl: &DeclRef,
         arch_decl: &DeclRef,
-        generic_overrides: &HashMap<SymbolId, EvaluatedValue>,
         path: &str,
         parent_env: &mut Environment,
     ) -> Result<InstanceId, ElaboratorError> {
         let mut local_env = Environment::new();
         let evaluated_generics =
-            self.elaborate_generics(entity_decl, generic_overrides, &mut local_env)?;
+            self.elaborate_generics(entity_decl, &parent_env.generic_overrides, &mut local_env)?;
+        local_env.add_generic_overrides(evaluated_generics);
 
         let ports = self.elaborate_ports(entity_decl, &mut local_env)?;
         let mut local_signals =
@@ -160,11 +159,10 @@ impl<'a> Elaborator<'a> {
             entity_name,
             architecture_name,
             hierarchical_path: path.to_string(),
-            generics: evaluated_generics,
             ports,
             port_bindings: Vec::new(),
             local_signals,
-            local_constants: local_env.constants.clone(),
+            local_env: local_env,
             concurrent_assignments,
             processes,
             children,
@@ -879,12 +877,12 @@ impl<'a> Elaborator<'a> {
         let assoc_ast = self.sa.get_ast(*a_file_id);
         let port_associations =
             &assoc_ast.associations[port_map_range.start as usize..port_map_range.end as usize];
+        parent_env.add_generic_overrides(evaluated_overrides);
 
         let child_id = self.elaborate_instance(
             inst_sym,
             child_entity_decl,
             child_arch_decl,
-            &evaluated_overrides,
             &child_path,
             parent_env,
         )?;

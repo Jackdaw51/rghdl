@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     analyzer::{SymbolId, SymbolInterner, TypeKind},
     ast::PortId,
@@ -15,6 +17,13 @@ impl Environment {
     /// Creates a new child scope (e.g. when entering a generate loop or sub-instance)
     pub fn extend(&self) -> Self {
         self.clone()
+    }
+
+    pub(crate) fn add_generic_overrides(&mut self, map: HashMap<SymbolId, EvaluatedValue>) {
+        self.generic_overrides = map;
+    }
+    pub(crate) fn generics(&self) -> &HashMap<SymbolId, EvaluatedValue> {
+        &self.generic_overrides
     }
 
     pub(crate) fn insert_signal(
