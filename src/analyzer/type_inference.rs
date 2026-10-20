@@ -157,6 +157,7 @@ impl<'a> SemanticAnalyzer<'a> {
         expr_id: ExprId,
     ) -> Result<TypeId, SemanticError> {
         if let Some(decl_ref) = self.symbols.lookup(self.current_scope, sym) {
+            dbg!(&decl_ref);
             let ty = self.get_decl_type(decl_ref);
 
             if ty != TypeId::ERROR {

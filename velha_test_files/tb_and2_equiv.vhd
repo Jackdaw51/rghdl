@@ -27,34 +27,16 @@ begin
 
     STIMULUS_PROC: process
     begin
-        -- Stimulus Vector 0
-        a <= '0';
-        b <= '0';
+	for i_0 in std_logic loop
+        a <= i_0;
+	for i_1 in std_logic loop
+        b <= i_1;
         wait for 10 ns;
         assert y_rtl_flat = y_rtl
-            report "Equivalence Mismatch on entity 'and2', port 'y' (arch 'rtl') for vector 0" severity error;
+            report "Equivalence Mismatch on entity 'and2', port 'y' (arch 'rtl')" severity error;
 
-        -- Stimulus Vector 1
-        a <= '1';
-        b <= '0';
-        wait for 10 ns;
-        assert y_rtl_flat = y_rtl
-            report "Equivalence Mismatch on entity 'and2', port 'y' (arch 'rtl') for vector 1" severity error;
-
-        -- Stimulus Vector 2
-        a <= '0';
-        b <= '1';
-        wait for 10 ns;
-        assert y_rtl_flat = y_rtl
-            report "Equivalence Mismatch on entity 'and2', port 'y' (arch 'rtl') for vector 2" severity error;
-
-        -- Stimulus Vector 3
-        a <= '1';
-        b <= '1';
-        wait for 10 ns;
-        assert y_rtl_flat = y_rtl
-            report "Equivalence Mismatch on entity 'and2', port 'y' (arch 'rtl') for vector 3" severity error;
-
+	end loop;
+	end loop;
         wait;
     end process;
 end architecture;

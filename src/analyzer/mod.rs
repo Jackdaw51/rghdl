@@ -52,6 +52,7 @@ pub enum SemanticErrorKind {
     },
     UnknownType,
     CannotSliceNonArray,
+    CannotHaveDeferredConstant,
     UnknownRecordField,
     InvalidLiteral,
     InvalidUnaryOperand,
@@ -100,6 +101,7 @@ pub struct SemanticAnalyzer<'a> {
 
     pub type_integer: TypeId,
     pub type_boolean: TypeId,
+    pub type_bit: TypeId,
     pub type_real: TypeId,
     pub type_time: TypeId,
     pub type_std_logic_vector: Option<TypeId>,

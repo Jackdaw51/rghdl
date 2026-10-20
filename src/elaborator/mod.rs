@@ -265,7 +265,7 @@ pub enum ElaboratorError {
 #[derive(Debug, Clone, Default)]
 pub struct Environment {
     /// Tracks compile-time constants and evaluated generic values
-    constants: HashMap<SymbolId, EvaluatedValue>,
+    pub constants: HashMap<SymbolId, EvaluatedValue>,
 
     /// Maps a local AST symbol (like 'clk') to the physical wire in the ElaboratedArena
     signals: HashMap<SymbolId, SignalId>,

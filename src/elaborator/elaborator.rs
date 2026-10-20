@@ -117,7 +117,7 @@ impl<'a> Elaborator<'a> {
         let mut local_env = Environment::new();
         let evaluated_generics =
             self.elaborate_generics(entity_decl, &parent_env.generic_overrides, &mut local_env)?;
-        local_env.add_generic_overrides(evaluated_generics);
+        local_env.set_generic_overrides(evaluated_generics);
 
         let ports = self.elaborate_ports(entity_decl, &mut local_env)?;
         let mut local_signals =
@@ -196,9 +196,11 @@ impl<'a> Elaborator<'a> {
                     let target_sig = self.lower_expr(*target, local_env)?;
                     self.register_signal_driver(target_sig, ast.span(*target))?;
                     // dbg!(&self.arena.exprs[target_sig.0 as usize]);
-                    let expr_id = self.lower_expr(*expression, &*local_env)?;
+                    let expr_id = self.lower_expr(*expression, local_env)?;
                     let delay_expr = after
-                        .map(|delay_ast_id| self.lower_expr(delay_ast_id, &*local_env))
+                        .map(|delay_ast_id| {
+                            self.lower_expr(delay_ast_id, local_env)
+                        })
                         .transpose()?;
                     concurrent_assignments.push(ElaboratedConcurrentAssignment {
                         target_signal: target_sig,
@@ -256,11 +258,11 @@ impl<'a> Elaborator<'a> {
                     direction,
                     stmts,
                 } => {
-                    let left_val = self.eval_const_expr(*range_left, &*local_env)?;
+                    let left_val = self.eval_const_expr(*range_left, local_env)?;
                     let EvaluatedValue::Integer(left_val) = left_val else {
                         unreachable!()
                     };
-                    let right_val = self.eval_const_expr(*range_right, &*local_env)?;
+                    let right_val = self.eval_const_expr(*range_right, local_env)?;
                     let EvaluatedValue::Integer(right_val) = right_val else {
                         unreachable!()
                     };
@@ -877,7 +879,7 @@ impl<'a> Elaborator<'a> {
         let assoc_ast = self.sa.get_ast(*a_file_id);
         let port_associations =
             &assoc_ast.associations[port_map_range.start as usize..port_map_range.end as usize];
-        parent_env.add_generic_overrides(evaluated_overrides);
+        parent_env.set_generic_overrides(evaluated_overrides);
 
         let child_id = self.elaborate_instance(
             inst_sym,
@@ -1778,6 +1780,7 @@ impl<'a> Elaborator<'a> {
         if Some(type_id) == self.sa.type_std_logic
             || type_id == self.sa.type_boolean
             || type_id == self.sa.type_real
+            || type_id == self.sa.type_bit
         {
             return Ok((0, 0));
         }
@@ -1815,10 +1818,10 @@ impl<'a> Elaborator<'a> {
 
                 Ok((slice_high, slice_low))
             } // TODO
-            _ => {
-                panic!();
+            a => {
+                // panic!();
                 Err(ElaboratorError::NotYetImplemented {
-                    feature: "Other kinds of types".to_string(),
+                    feature: format!("Found {:?}",a),
                     span: self.sa.get_ast(self.file_id).span(expr_id),
                     file_id: self.file_id,
                 })

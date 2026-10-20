@@ -19,7 +19,7 @@ impl Environment {
         self.clone()
     }
 
-    pub(crate) fn add_generic_overrides(&mut self, map: HashMap<SymbolId, EvaluatedValue>) {
+    pub(crate) fn set_generic_overrides(&mut self, map: HashMap<SymbolId, EvaluatedValue>) {
         self.generic_overrides = map;
     }
     pub(crate) fn generics(&self) -> &HashMap<SymbolId, EvaluatedValue> {
@@ -109,6 +109,17 @@ impl LibraryRegistry {
             ],
         });
         standard_pkg.add_type("boolean", sym_bool, type_bool);
+
+        // Register bit
+        let sym_bit = interner.get_or_internalize("bit");
+        let type_bit = registry.types.alloc(TypeKind::Enum {
+            name: sym_bit,
+            literals: vec![
+                interner.get_or_internalize("'0'"),
+                interner.get_or_internalize("'1'"),
+            ],
+        });
+        standard_pkg.add_type("bit", sym_bit, type_bit);
 
         // Register Integer
         let sym_int = interner.get_or_internalize("integer");

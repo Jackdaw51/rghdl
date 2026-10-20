@@ -68,6 +68,10 @@ impl<'a> Parser<'a> {
 
             self.expect(TokenKind::Colon)?;
 
+            if self.next_is(TokenKind::KwIn) {
+                self.advance();
+            }
+
             let decl_type = self.parse_expression()?;
 
             // Optional default initialization expression (`:= 32`)

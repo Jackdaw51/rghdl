@@ -32,6 +32,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
         // Ideally we would fetch these from the registry's std.standard and ieee.std_logic_1164 packages.
 
         let type_boolean = registry.get_type("std", "standard", "boolean").unwrap();
+        let type_bit = registry.get_type("std", "standard", "bit").unwrap();
         let type_integer = registry.get_type("std", "standard", "integer").unwrap();
         let type_real = registry.get_type("std", "standard", "real").unwrap();
         let type_time = registry.get_type("std", "standard", "time").unwrap();
@@ -50,6 +51,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
             errors: Vec::new(),
             type_integer,
             type_boolean,
+            type_bit,
             type_real,
             type_time,
             entity_architectures: HashMap::new(),
@@ -397,6 +399,14 @@ impl<'a> super::SemanticAnalyzer<'a> {
                     decl_type,
                     default_val,
                 } => {
+                    if default_val.is_none() {
+                        self.errors.push(SemanticError::new(
+                            SemanticErrorKind::CannotHaveDeferredConstant,
+                            self.span(absolute_decl_id),
+                            self.current_file,
+                        ));
+                        return;
+                    }
                     self.register_declaration(
                         *name,
                         Some(*decl_type),
@@ -978,7 +988,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
             }
             // SequentialStmt::Case { .. } => todo!(),
             // SequentialStmt::Loop { .. } => todo!(),
-            SequentialStmt::ProcedureCall { .. } => todo!(),
+            SequentialStmt::ProcedureCall { .. } => return,
         }
     }
 
@@ -996,21 +1006,31 @@ impl<'a> super::SemanticAnalyzer<'a> {
         is_signal_assign: bool,
     ) {
         let target_type_res = self.infer_expr_type(target_expr, None);
-
-        let expected_rhs = target_type_res.as_ref().ok().copied();
-        let rhs_type_res = self.infer_expr_type(rhs_expr, expected_rhs);
-
-        if let (Ok(target_type), Ok(rhs_type)) = (target_type_res, rhs_type_res) {
-            if target_type != rhs_type {
-                self.errors.push(SemanticError::new(
-                    SemanticErrorKind::AssignmentTypeMismatch {
-                        expected: target_type,
-                        found: rhs_type,
-                    },
-                    self.span(rhs_expr),
-                    self.current_file,
-                ));
+        let target_type = match target_type_res {
+            Ok(x) => x,
+            Err(x) => {
+                self.errors.push(x);
+                return;
             }
+        };
+        let rhs_type_res = self.infer_expr_type(rhs_expr, Some(target_type));
+        let rhs_type = match rhs_type_res {
+            Ok(x) => x,
+            Err(x) => {
+                self.errors.push(x);
+                return;
+            }
+        };
+
+        if target_type != rhs_type {
+            self.errors.push(SemanticError::new(
+                SemanticErrorKind::AssignmentTypeMismatch {
+                    expected: target_type,
+                    found: rhs_type,
+                },
+                self.span(rhs_expr),
+                self.current_file,
+            ));
         }
 
         // Signal vs Variable invariants

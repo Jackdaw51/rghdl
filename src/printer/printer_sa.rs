@@ -20,6 +20,10 @@ impl<'a> Display for SAFormatCtx<'a, SemanticErrorKind> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.item {
             SemanticErrorKind::AssignmentTypeMismatch { expected, found } => {
+                if expected.is_error(){
+                    write!(f,"Invalid type")?;
+                    return Ok(());
+                }
                 write!(
                     f,
                     "Assignment type mismatch, expected: {}, found: {}",

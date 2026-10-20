@@ -57,7 +57,8 @@ impl<'a> Display for FormatCtx<'a, ParseError> {
                     "A direct entity instantiation statement must have a label"
                 )
             }
-            crate::parser::ParseErrorKind::Error => todo!(),
+            crate::parser::ParseErrorKind::Error => write!(f,"generic error"),
+            crate::parser::ParseErrorKind::Ignore => write!(f, "The test should have failed before!"),
         }?;
         write!(
             f,
@@ -295,7 +296,7 @@ impl<'a> Display for FormatCtx<'a, ConcurrentStmt> {
                     write!(f, "{}", self.child_indented(i))?;
                 }
                 writeln!(f, "{}end generate;", self.pad())?;
-                todo!("{}{}",decls_start.0,decls_end.0);
+                // todo!("{}{}",decls_start.0,decls_end.0);
                 Ok(())
             }
         }

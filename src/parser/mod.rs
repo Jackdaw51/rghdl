@@ -85,6 +85,45 @@ pub enum TokenKind {
     KwFor,
     KwGenerate,
     KwOpen,
+    KwType,
+    KwSubType,
+    KwAssert,
+    KwRange,
+    KwRegister,
+    KwBus,
+    KwAlias,
+    KwAttribute,
+    KwCase,
+    KwLoop,
+    KwWait,
+    KwTransport,
+    KwProcedure,
+    KwReturn,
+    KwBlock,
+    KwWhen,
+    KwWith,
+    KwMod,
+    KwRem,
+    KwNew,
+    KwArray,
+    KwConfiguration,
+    KwExit,
+    KwFile,
+    KwGuarded,
+    KwLabel,
+    KwLinkage,
+    KwNext,
+    KwNull,
+    KwOn,
+    KwRecord,
+    KwSelect,
+    KwSeverity,
+    KwReport,
+    KwUnits,
+    KwWhile,
+    KwFunction,
+
+
 
     OpAssign,            // :=
     OpArrow,             // => (Port mapping)
@@ -104,13 +143,55 @@ pub enum TokenKind {
     Semicolon, // ;
     Comma,     // ,
     Dot,       // .
-    Tick,      // '
+    Tick,      // ' UNSUPPORTED for now
     LParen,    // (
     RParen,    // )
+    VBar,
 
     Eof,
     Error,
+    KwDisconnect,
 }
+
+const UNSUPPORTED: &[TokenKind] = &[
+    TokenKind::KwType,
+    TokenKind::KwSubType,
+    TokenKind::KwRange,
+    TokenKind::KwRegister,
+    TokenKind::KwBus,
+    TokenKind::KwAlias,
+    TokenKind::KwAttribute,
+    TokenKind::KwCase,
+    TokenKind::KwLoop,
+    TokenKind::KwTransport,
+    TokenKind::KwProcedure,
+    TokenKind::KwReturn,
+    TokenKind::KwBlock,
+    TokenKind::KwWhen,
+    TokenKind::KwWith,
+    TokenKind::KwMod,
+    TokenKind::KwRem,
+    TokenKind::KwNew,
+    TokenKind::KwArray,
+    TokenKind::KwConfiguration,
+    TokenKind::KwDisconnect,
+    TokenKind::KwExit,
+    TokenKind::KwFile,
+    TokenKind::KwGuarded,
+    TokenKind::KwLabel,
+    TokenKind::KwLinkage,
+    TokenKind::KwNext,
+    TokenKind::KwNull,
+    TokenKind::KwOn,
+    TokenKind::KwRecord,
+    TokenKind::KwSelect,
+    // TokenKind::KwSeverity,
+    // TokenKind::KwReport,
+    TokenKind::KwUnits,
+    TokenKind::KwWhile,
+    TokenKind::KwFunction,
+    // TokenKind::KwWait,
+];
 
 const KEYWORDS: &[(&str, TokenKind)] = &[
     ("library", TokenKind::KwLibrary),
@@ -153,7 +234,45 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("after", TokenKind::KwAfter),
     ("for", TokenKind::KwFor),
     ("generate", TokenKind::KwGenerate),
-    ("open", TokenKind::KwOpen)
+    ("open", TokenKind::KwOpen),
+    ("type", TokenKind::KwType),
+    ("subtype", TokenKind::KwSubType),
+    ("assert", TokenKind::KwAssert),
+    ("range", TokenKind::KwRange),
+    ("register", TokenKind::KwRegister),
+    ("bus", TokenKind::KwBus),
+    ("alias", TokenKind::KwAlias),
+    ("attribute", TokenKind::KwAttribute),
+    ("case", TokenKind::KwCase),
+    ("loop", TokenKind::KwLoop),
+    ("wait", TokenKind::KwWait),
+    ("transport", TokenKind::KwTransport),
+    ("procedure", TokenKind::KwProcedure),
+    ("return", TokenKind::KwReturn),
+    ("block", TokenKind::KwBlock),
+    ("when", TokenKind::KwWhen),
+    ("with", TokenKind::KwWith),
+    ("mod", TokenKind::KwMod),
+    ("rem", TokenKind::KwRem),
+    ("new", TokenKind::KwNew),
+    ("array", TokenKind::KwArray),
+    ("configuration", TokenKind::KwConfiguration),
+    ("disconnect", TokenKind::KwDisconnect),
+    ("exit", TokenKind::KwExit),
+    ("file",TokenKind::KwFile),
+    ("guarded",TokenKind::KwGuarded),
+    ("label",TokenKind::KwLabel),
+    ("linkage",TokenKind::KwLinkage),
+    ("next",TokenKind::KwNext),
+    ("null",TokenKind::KwNull),
+    ("on",TokenKind::KwOn),
+    ("record",TokenKind::KwRecord),
+    ("select",TokenKind::KwSelect),
+    ("severity",TokenKind::KwSeverity),
+    ("report",TokenKind::KwReport),
+    ("units",TokenKind::KwUnits),
+    ("while",TokenKind::KwWhile),
+    ("function", TokenKind::KwFunction),
 ];
 impl Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -200,6 +319,7 @@ impl Display for TokenKind {
             TokenKind::KwNor => "nor",
             TokenKind::KwAbs => "abs",
             TokenKind::KwMap => "map",
+            TokenKind::KwCase => "case",
 
             TokenKind::OpAssign => ":=",
             TokenKind::OpArrow => "=>",
@@ -222,6 +342,7 @@ impl Display for TokenKind {
             TokenKind::Tick => "'",
             TokenKind::LParen => "(",
             TokenKind::RParen => ")",
+            TokenKind::VBar => "|",
 
             TokenKind::Eof => "<EOF>",
             TokenKind::Error => "<ERROR>",
@@ -230,6 +351,43 @@ impl Display for TokenKind {
             TokenKind::KwFor => "for",
             TokenKind::KwGenerate => "generate",
             TokenKind::KwOpen => "open",
+            TokenKind::KwType => "type",
+            TokenKind::KwAssert => "assert",
+            TokenKind::KwSubType => "subtype",
+            TokenKind::KwRange => "range",
+            TokenKind::KwRegister => "register",
+            TokenKind::KwBus => "bus",
+            TokenKind::KwAlias => "alias",
+            TokenKind::KwAttribute => "attribute",
+            TokenKind::KwLoop => "loop",
+            TokenKind::KwWait => "wait",
+            TokenKind::KwTransport => "transport",
+            TokenKind::KwProcedure => "procedure",
+            TokenKind::KwReturn => "return",
+            TokenKind::KwBlock => "block",
+            TokenKind::KwWhen => "when",
+            TokenKind::KwWith => "with",
+            TokenKind::KwMod => "mod",
+            TokenKind::KwRem => "rem",
+            TokenKind::KwNew => "new",
+            TokenKind::KwArray => "array",
+            TokenKind::KwConfiguration => "configuration",
+            TokenKind::KwDisconnect => "configuration",
+            TokenKind::KwExit => "exit",
+            TokenKind::KwFile => "file",
+            TokenKind::KwGuarded => "guarded",
+            TokenKind::KwLabel => "label",
+            TokenKind::KwLinkage => "linkage",
+            TokenKind::KwNext => "next",
+            TokenKind::KwNull => "null",
+            TokenKind::KwOn => "on",
+            TokenKind::KwRecord => "record",
+            TokenKind::KwSelect => "select",
+            TokenKind::KwSeverity => "severity",
+            TokenKind::KwReport => "report",
+            TokenKind::KwUnits => "units",
+            TokenKind::KwWhile => "while",
+            TokenKind::KwFunction => "function",
         };
         write!(f, "{}", s)
     }
@@ -278,41 +436,36 @@ pub type ParseResult<T> = Result<T, ParseError>;
 #[macro_export]
 macro_rules! exp_tks {
     ($found:expr, $span:expr, $t1:expr) => {
-        return Err($crate::parser::ParseError {
-            kind: ParseErrorKind::ExpectedTokens {
-                expected: [Some($t1), None, None, None],
-                found: $found,
-            },
-            span: $span,
-        })
+        $crate::exp_tks!(@expand $found, $span, [Some($t1), None, None, None])
     };
     ($found:expr, $span:expr, $t1:expr, $t2:expr) => {
-        return Err($crate::parser::ParseError {
-            kind: ParseErrorKind::ExpectedTokens {
-                expected: [Some($t1), Some($t2), None, None],
-                found: $found,
-            },
-            span: $span,
-        })
+        $crate::exp_tks!(@expand $found, $span, [Some($t1), Some($t2), None, None])
     };
     ($found:expr, $span:expr, $t1:expr, $t2:expr, $t3:expr) => {
-        return Err($crate::parser::ParseError {
-            kind: ParseErrorKind::ExpectedTokens {
-                expected: [Some($t1), Some($t2), Some($t3), None],
-                found: $found,
-            },
-            span: $span,
-        })
+        $crate::exp_tks!(@expand $found, $span, [Some($t1), Some($t2), Some($t3), None])
     };
     ($found:expr, $span:expr, $t1:expr, $t2:expr, $t3:expr, $t4:expr) => {
+        $crate::exp_tks!(@expand $found, $span, [Some($t1), Some($t2), Some($t3), Some($t4)])
+    };
+
+    (@expand $found:expr, $span:expr, $expected:expr) => {{
+        let found = $found;
+        if $crate::parser::UNSUPPORTED.contains(&found) {
+            return Err($crate::parser::ParseError {
+                kind: $crate::parser::ParseErrorKind::NotYetImplemented {
+                    token_kind: found,
+                },
+                span: $span,
+            });
+        }
         return Err($crate::parser::ParseError {
-            kind: ParseErrorKind::ExpectedTokens {
-                expected: [Some($t1), Some($t2), Some($t3), Some($t4)],
-                found: $found,
+            kind: $crate::parser::ParseErrorKind::ExpectedTokens {
+                expected: $expected,
+                found: found,
             },
             span: $span,
-        })
-    };
+        });
+    }};
 }
 pub struct Parser<'a> {
     pub(crate) lexer: Lexer<'a>,
@@ -340,7 +493,8 @@ pub enum ParseErrorKind {
     GenerateCantBeLabelLess,
     DirectEntityInstCantBeLabelLess,
     NotYetImplemented {
-        token_kind: TokenKind
+        token_kind: TokenKind,
     },
     Error,
+    Ignore, // For testing purposes
 }

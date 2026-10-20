@@ -24,6 +24,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse(&mut self) -> ParseResult<()> {
         loop {
             let next = self.lexer.peek();
+            dbg!(next.kind);
             match next.kind {
                 TokenKind::KwEntity => {
                     let res = self.parse_entity();
@@ -102,9 +103,18 @@ impl<'a> Parser<'a> {
     }
     pub(super) fn expect(&mut self, expected: TokenKind) -> ParseResult<Token> {
         let token = self.advance();
+
+        if crate::parser::UNSUPPORTED.contains(&token.kind) {
+            return self.err(
+                ParseErrorKind::NotYetImplemented {
+                    token_kind: token.kind,
+                },
+                token.span,
+            );
+        }
+
         if token.kind != expected {
             if token.kind == TokenKind::Eof {
-                dbg!(token.clone());
                 return self.err(ParseErrorKind::UnexpectedEof, token.span);
             }
             return self.err(
@@ -160,8 +170,22 @@ impl<'a> Parser<'a> {
     pub fn parse_port(&mut self) -> ParseResult<()> {
         let mut names = Vec::new();
         let start = self.lexer.current_pos;
+        if self.next_is(TokenKind::KwSignal) {
+            self.advance();
+        }
+        let first_tok = if self.next_is(TokenKind::Identifier) {
+            self.advance()
+        } else {
+            let next = self.lexer.peek();
+            exp_tks!(
+                next.kind,
+                next.span,
+                TokenKind::KwSignal,
+                TokenKind::Identifier
+            )
+        };
+
         // Parse comma-separated identifiers
-        let first_tok = self.expect(TokenKind::Identifier)?;
         names.push(self.intern(first_tok.span));
 
         while self.next_is(TokenKind::Comma) {

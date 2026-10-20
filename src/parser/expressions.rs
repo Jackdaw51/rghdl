@@ -1,10 +1,13 @@
 use crate::ast::{BinaryOp, Expr, ExprId, UnaryOp};
 use crate::exp_tks;
-use crate::parser::{ParseError, ParseErrorKind, ParseResult, Parser, Span, TokenKind};
+use crate::parser::{
+    ParseError, ParseErrorKind, ParseResult, Parser, Span, TokenKind, UNSUPPORTED,
+};
 
 impl<'a> Parser<'a> {
     /// Entry point for parsing an expression.
     pub fn parse_expression(&mut self) -> Result<ExprId, ParseError> {
+        dbg!(self.lexer.peek());
         self.parse_expr_bp(0) // Start with lowest binding power (0)
     }
 
@@ -205,6 +208,13 @@ impl<'a> Parser<'a> {
 
             tk => {
                 self.print_errors();
+                if UNSUPPORTED.contains(&tk) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::NotYetImplemented { token_kind: tk },
+                        span: token.span,
+                    });
+                }
+                return Err(ParseError { kind: ParseErrorKind::Error, span: token.span });
                 panic!(
                     "line {}, {:?}, {:?}",
                     &&self.lexer.get_current_line(),

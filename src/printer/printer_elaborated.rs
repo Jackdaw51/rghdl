@@ -555,6 +555,24 @@ impl<'a> VhdlEmitter<'a> {
             }
             writeln!(out, ";")?;
         }
+        for constants in inst.local_env.constants.values() {
+            let fm = ElaboratedFormatCtx {
+                item: constants,
+                arena: self.arena,
+                sa: self.sa,
+                indent: 0,
+                path: &vec![],
+                source: &vec![],
+            };
+            match constants{
+                EvaluatedValue::Integer(i) => write!(out,"{i}")?,
+                EvaluatedValue::Boolean(_) => todo!(),
+                EvaluatedValue::EnumLiteral(symbol_id) => todo!(),
+                EvaluatedValue::Vector(evaluated_values) => todo!(),
+            }
+            write!(out, "\tconstant: {}", fm)?;
+            writeln!(out, ";")?;
+        }
 
         writeln!(out, "begin")?;
 

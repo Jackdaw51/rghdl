@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Command};
+use std::{collections::HashMap, process::Command, time::Instant};
 
 use crate::{
     analyzer::{DeclRef, ScopeId, SemanticAnalyzer, TypeId},
@@ -97,8 +97,8 @@ pub fn run_all_equivalence_testbenches(
 
         eprintln!(
             "\n\
-         === GHDL STDERR ===\n{}\n\
-         === GHDL STDOUT ===\n{}",
+            === GHDL STDERR ===\n{}\n\
+            === GHDL STDOUT ===\n{}",
             stderr.trim(),
             stdout.trim()
         );
@@ -116,6 +116,8 @@ pub fn run_all_equivalence_testbenches(
         return Err(format!("GHDL elaboration failed for unit '{}'", tb_unit).into());
     }
 
+    println!("Validating equivalence...");
+    let now = Instant::now();
     let sim_status = Command::new("ghdl")
         .args([
             "-r",
@@ -130,8 +132,9 @@ pub fn run_all_equivalence_testbenches(
     }
 
     println!(
-        "PASS: Unit '{}' equivalence verified successfully.",
-        tb_unit
+        "PASS: Unit '{}' equivalence verified successfully in {} seconds",
+        tb_unit,
+        now.elapsed().as_secs()
     );
 
     Ok(())
@@ -363,61 +366,40 @@ fn generate_single_entity_tb(
     }
 
     let mut stimulus_process = String::new();
+    let mut loop_n = 0;
 
     if !input_ports.is_empty() {
-        // e.g. 2 vectors of 4 bits = 8 bits total
-        let total_bits: usize = input_ports.iter().map(|p| p.width).sum();
-        let num_vectors = 1 << total_bits.min(9);
-
-        for vec in 0..num_vectors {
-            stimulus_process.push_str(&format!("        -- Stimulus Vector {}\n", vec));
-
-            let mut bit_offset = 0;
-            for port in &input_ports {
-                let val_str = if Some(port.type_id) == sa.type_std_logic_vector {
-                    // Extract port.width bits from vec starting at bit_offset
-                    let mut bin_str = String::with_capacity(port.width);
-                    for b in (0..port.width).rev() {
-                        let bit_val = (vec >> (bit_offset + b)) & 1;
-                        bin_str.push(if bit_val == 1 { '1' } else { '0' });
-                    }
-                    format!("\"{}\"", bin_str) // Double quotes for std_logic_vector
-                } else if port.type_id == sa.type_boolean {
-                    let bit_val = (vec >> bit_offset) & 1;
-                    if bit_val == 1 {
-                        "true".to_string()
-                    } else {
-                        "false".to_string()
-                    }
-                } else if port.type_id == sa.type_integer {
-                    let bit_val = (vec >> bit_offset) & 1;
-                    bit_val.to_string()
-                } else {
-                    let bit_val = (vec >> bit_offset) & 1;
-                    if bit_val == 1 {
-                        "'1'".to_string()
-                    } else {
-                        "'0'".to_string()
-                    }
-                };
-
-                stimulus_process.push_str(&format!("        {} <= {};\n", port.name, val_str));
-                bit_offset += port.width;
-            }
-
-            stimulus_process.push_str("        wait for 10 ns;\n");
-
-            for (port_name, _) in &output_ports {
-                for &arch in &target_archs {
-                    let sig_arch = format!("{}_{}", port_name, arch);
-                    let sig_flat = format!("{}_{}_flat", port_name, arch);
-                    stimulus_process.push_str(&format!(
-                        "        assert {} = {}\n            report \"Equivalence Mismatch on entity '{}', port '{}' (arch '{}') for vector {}\" severity error;\n",
-                        sig_flat, sig_arch, orig_entity_name, port_name, arch, vec
-                    ));
+        for (i, port) in input_ports.iter().enumerate() {
+            if Some(port.type_id) == sa.type_std_logic_vector {
+                for j in 0..port.width {
+                    stimulus_process.push_str(&format!("\tfor j_{j} in std_logic loop\n",));
+                    // stimulus_process.push_str(&format!("\t\treport std_logic'image(j_{j});\n"));
+                    stimulus_process.push_str(&format!("\t\t{}({j}) <= j_{j};\n", port.name));
+                    loop_n += 1;
                 }
+                continue;
             }
-            stimulus_process.push('\n');
+            stimulus_process.push_str(&format!("\tfor i_{i} in {} loop\n", port.type_str));
+            // stimulus_process.push_str(&format!("\t\treport {}'image(i_{i});\n", port.type_str));
+            stimulus_process.push_str(&format!("        {} <= i_{i};\n", port.name));
+            loop_n += 1;
+        }
+
+        stimulus_process.push_str("        wait for 10 ns;\n");
+
+        for (port_name, _) in &output_ports {
+            for &arch in &target_archs {
+                let sig_arch = format!("{}_{}", port_name, arch);
+                let sig_flat = format!("{}_{}_flat", port_name, arch);
+                stimulus_process.push_str(&format!(
+                        "        assert {} = {}\n            report \"Equivalence Mismatch on entity '{}', port '{}' (arch '{}')\" severity error;\n",
+                        sig_flat, sig_arch, orig_entity_name, port_name, arch
+                    ));
+            }
+        }
+        stimulus_process.push('\n');
+        for _ in 0..loop_n {
+            stimulus_process.push_str("\tend loop;\n");
         }
     } else {
         stimulus_process.push_str("        wait for 10 ns;\n");

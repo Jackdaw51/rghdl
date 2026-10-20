@@ -37,7 +37,9 @@ impl<'a> Parser<'a> {
                     local_ids.push(id);
                 }
                 Err(e) => {
-                    self.errors.push(e);
+                    if !matches!(e.kind, ParseErrorKind::Ignore) {
+                        self.errors.push(e);
+                    }
                     self.recover_to_statement_boundary();
                 }
             }
@@ -77,7 +79,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::KwBegin)?;
 
         let mut local_conc_ids = Vec::new();
-        self.parse_conc_stmts_till_end(&mut local_conc_ids);
+        self.parse_conc_stmts_till_end(&mut local_conc_ids)?;
 
         let stmts_start = self.arena.conc_stmt_lists.len() as u32;
         self.arena.conc_stmt_lists.extend(local_conc_ids);
@@ -99,7 +101,9 @@ impl<'a> Parser<'a> {
         block_name: SymbolId,
         token_kind: TokenKind,
     ) -> Result<(), ParseError> {
-        self.expect(TokenKind::KwEnd)?;
+        if self.next_is(TokenKind::KwEnd) {
+            self.advance();
+        }
         if self.next_is(token_kind) {
             self.advance();
         }
@@ -121,7 +125,10 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn parse_conc_stmts_till_end(&mut self, local_conc_ids: &mut Vec<crate::ast::ConcStmtId>) {
+    fn parse_conc_stmts_till_end(
+        &mut self,
+        local_conc_ids: &mut Vec<crate::ast::ConcStmtId>,
+    ) -> ParseResult<()> {
         while !self.next_is(TokenKind::KwEnd) {
             let start = self.lexer.current_pos;
             match self.parse_concurrent_statement() {
@@ -131,11 +138,15 @@ impl<'a> Parser<'a> {
                     local_conc_ids.push(id);
                 }
                 Err(x) => {
+                    if matches!(x.kind, ParseErrorKind::UnexpectedEof) {
+                        return Err(x);
+                    }
                     self.errors.push(x);
                     self.recover_to_statement_boundary();
                 }
             };
         }
+        Ok(())
     }
     fn parse_architecture_declaration(&mut self) -> ParseResult<()> {
         let start_tok = self.advance();
@@ -364,7 +375,7 @@ impl<'a> Parser<'a> {
         };
 
         while !self.next_is(TokenKind::KwBegin) && self.not_eof() {
-            self.advance();
+            self.expect(TokenKind::KwVariable)?;
             self.parse_scv_declaration(TokenKind::KwVariable)?;
         }
         self.expect(TokenKind::KwBegin)?;
@@ -372,6 +383,7 @@ impl<'a> Parser<'a> {
         let stmts = self.parse_sequential_block()?;
 
         self.expect(TokenKind::KwEnd)?; //end
+        self.expect(TokenKind::KwProcess)?;
 
         // Handle optional "end process;" or "end process label;"
         if let Some(lbl) = label {
@@ -388,7 +400,10 @@ impl<'a> Parser<'a> {
     fn parse_sequential_statement(&mut self) -> ParseResult<SequentialStmt> {
         match self.lexer.peek().kind {
             TokenKind::KwIf => self.parse_if_statement(),
-
+            TokenKind::KwAssert | TokenKind::KwWait => Err(ParseError {
+                kind: ParseErrorKind::Ignore,
+                span: Span { start: 0, end: 0 },
+            }),
             // TODO
             // TokenKind::KwCase => self.parse_case_statement(),
             // TokenKind::KwFor | TokenKind::KwWhile => self.parse_loop_statement(),
@@ -708,7 +723,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::KwGenerate)?;
 
         let mut local_conc_ids = vec![];
-        self.parse_conc_stmts_till_end(&mut local_conc_ids);
+        self.parse_conc_stmts_till_end(&mut local_conc_ids)?;
         dbg!(&local_conc_ids);
 
         let stmts = self.alloc_stmt_list(local_conc_ids);
