@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use std::process::Command;
+use std::time::Instant;
 use std::{env, fs};
 
 use crate::analyzer::{DeclRef, ScopeId, SemanticAnalyzer};
@@ -28,190 +29,188 @@ const FOLDER_NAME: &str = "velha_test_files";
 const TEST_FOLDER_NAME: &str = "testsuite-vests_vhdl-93_billowitch_non_compliant_analyzer_failure";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "dhat-heap")]
-    let _profiler = dhat::Profiler::new_heap();
-    
-    
-    let args: Vec<String> = env::args().collect();
+    {
+        #[cfg(feature = "dhat-heap")]
+        let _profiler = dhat::Profiler::new_heap();
 
-    let a = args.iter().enumerate().find(|p| *p.1 == "--top");
-    let is_test = args.iter().enumerate().find(|p| *p.1 == "--test");
+        // let now = Instant::now();
 
-    if let Some(a) = is_test {
-        return run_tests(args);
-    }
-    let Some(b) = a else {
-        return Err("Please specify a top level entity using --top".into());
-    };
+        let args: Vec<String> = env::args().collect();
 
-    let file_names: Vec<&String> = args.iter().skip(1).take(b.0 - 1).collect();
-    let top_entity: Vec<&String> = args.iter().skip(b.0 + 1).collect();
+        let a = args.iter().enumerate().find(|p| *p.1 == "--top");
+        let is_test = args.iter().enumerate().find(|p| *p.1 == "--test");
 
-    if top_entity.len() > 1 {
-        return Err("Format is rghdl <file_names> --top <top_entity>".into());
-    }
-
-    // let path = "test_files/and_gate.vhd";
-    // let path = "test_files/audio_testbench.vhd";
-    // let path = "test_files/sine_wave_440hz.vhd";
-    // let path_1 = "velha_test_files/01_nand2.vhd";
-    // let path_2 = "velha_test_files/02_primitives.vhd";
-    // let path_3 = "velha_test_files/03_adders.vhd";
-    // let source_string = fs::read_to_string("test_files/custom_types_pkg.vhd").expect("Not found");
-    // let source_string = fs::read_to_string("test_files/latch_inference.vhd").expect("Not found");
-    // let source_string = fs::read_to_string("test_files/param_mux.vhd").expect("Not found");
-    // let source_string = fs::read_to_string("test_files/audio_testbench.vhd").expect("Not found");
-    // let source_string = fs::read_to_string("test_files/sine_wave_440hz.vhd").expect("Not found");
-
-    let paths: Vec<String> = file_names
-        .iter()
-        .map(|f| format!("{FOLDER_NAME}/{}.vhd", f))
-        .collect();
-    let paths: Vec<&str> = paths.iter().map(|p| p.as_str()).collect();
-
-    // paths = vec![path_2];
-    let strings: Vec<String> = paths
-        .iter()
-        .map(|f| fs::read_to_string(f).expect("Not found"))
-        .collect();
-    let strings = strings.iter().map(|f| f.as_str()).collect();
-
-    let mut workspace = Workspace::new(paths.clone(), strings);
-    let file = match workspace.parse() {
-        Ok(x) => x,
-        Err(x) => {
-            let a: Vec<&&str> = x.iter().map(|f| paths.get(f.0 as usize).unwrap()).collect();
-            eprintln!("Errors found in:");
-            for i in a {
-                println!("\t{i}");
-            }
-            return Err(format!("Parsing failed").into());
-            // return Ok(());
+        if let Some(a) = is_test {
+            return run_tests(args);
         }
-    };
-    let top_entity_name = if top_entity.len() == 0 {
-        let name = workspace
-            .asts
-            .first()
-            .unwrap()
-            .entities
-            .get(0)
-            .ok_or_else(|| "No entity found!".to_string())?
-            .name;
-        let name = workspace.table.interner.get(name).to_string();
+        let Some(b) = a else {
+            return Err("Please specify a top level entity using --top".into());
+        };
 
-        println!("Using found default top entity name: {}", name);
-        name
-    } else {
-        top_entity.first().unwrap().to_string()
-    };
-    // workspace.print_ast()?;
-    let mut sa = SemanticAnalyzer::new(&workspace.asts, &mut workspace.table, &workspace.registry);
-    match sa.analyze(&mut workspace.registry) {
-        Ok(_) => {}
-        Err(errors) => {
-            for err in &errors {
-                let i = err.file_id.0 as usize;
+        let file_names: Vec<&String> = args.iter().skip(1).take(b.0 - 1).collect();
+        let top_entity: Vec<&String> = args.iter().skip(b.0 + 1).collect();
+
+        if top_entity.len() > 1 {
+            return Err("Format is rghdl <file_names> --top <top_entity>".into());
+        }
+
+        // let path = "test_files/and_gate.vhd";
+        // let path = "test_files/audio_testbench.vhd";
+        // let path = "test_files/sine_wave_440hz.vhd";
+        // let path_1 = "velha_test_files/01_nand2.vhd";
+        // let path_2 = "velha_test_files/02_primitives.vhd";
+        // let path_3 = "velha_test_files/03_adders.vhd";
+        // let source_string = fs::read_to_string("test_files/custom_types_pkg.vhd").expect("Not found");
+        // let source_string = fs::read_to_string("test_files/latch_inference.vhd").expect("Not found");
+        // let source_string = fs::read_to_string("test_files/param_mux.vhd").expect("Not found");
+        // let source_string = fs::read_to_string("test_files/audio_testbench.vhd").expect("Not found");
+        // let source_string = fs::read_to_string("test_files/sine_wave_440hz.vhd").expect("Not found");
+
+        let paths: Vec<String> = file_names
+            .iter()
+            .map(|f| format!("{FOLDER_NAME}/{}.vhd", f))
+            .collect();
+        let paths: Vec<&str> = paths.iter().map(|p| p.as_str()).collect();
+
+        // paths = vec![path_2];
+        let strings: Vec<String> = paths
+            .iter()
+            .map(|f| fs::read_to_string(f).expect("Not found"))
+            .collect();
+        let strings = strings.iter().map(|f| f.as_str()).collect();
+
+        let mut workspace = Workspace::new(paths.clone(), strings);
+        let file = match workspace.parse() {
+            Ok(x) => x,
+            Err(x) => {
+                let a: Vec<&&str> = x.iter().map(|f| paths.get(f.0 as usize).unwrap()).collect();
+                eprintln!("Errors found in:");
+                for i in a {
+                    println!("\t{i}");
+                }
+                return Err(format!("Parsing failed").into());
+                // return Ok(());
+            }
+        };
+        let top_entity_name = if top_entity.len() == 0 {
+            let name = workspace
+                .asts
+                .first()
+                .unwrap()
+                .entities
+                .get(0)
+                .ok_or_else(|| "No entity found!".to_string())?
+                .name;
+            let name = workspace.table.interner.get(name).to_string();
+
+            println!("Using found default top entity name: {}", name);
+            name
+        } else {
+            top_entity.first().unwrap().to_string()
+        };
+        // workspace.print_ast()?;
+        let mut sa =
+            SemanticAnalyzer::new(&workspace.asts, &mut workspace.table, &workspace.registry);
+        match sa.analyze(&mut workspace.registry) {
+            Ok(_) => {}
+            Err(errors) => {
+                for err in &errors {
+                    let i = err.file_id.0 as usize;
+                    eprintln!(
+                        "  {}",
+                        SAFormatCtx {
+                            item: err,
+                            arena: &sa.asts[i],
+                            indent: 0,
+                            sa: &sa,
+                            path: workspace.paths[i],
+                            source: workspace.strings[i],
+                        }
+                    );
+                }
+                return Err(format!(
+                    "Semantic Analysis failed with {} error(s):",
+                    // self.paths[i],
+                    errors.len()
+                )
+                .into());
+            }
+        };
+
+        // let elaborator = Elaborator::new(&sa);
+
+        let mut elaborator = Elaborator::new(&sa);
+
+        let top_instance = match elaborator.elaborate_top(&workspace.registry, &top_entity_name) {
+            Ok(inst) => inst,
+            Err(err) => {
                 eprintln!(
-                    "  {}",
-                    SAFormatCtx {
-                        item: err,
-                        arena: &sa.asts[i],
-                        indent: 0,
+                    "Elaboration Error: {}",
+                    ElaboratedFormatCtx {
+                        item: &err,
+                        arena: &elaborator.arena,
                         sa: &sa,
-                        path: workspace.paths[i],
-                        source: workspace.strings[i],
+                        indent: 0,
+                        path: &workspace.paths,
+                        source: &workspace.strings,
                     }
                 );
+                return Ok(());
             }
-            return Err(format!(
-                "Semantic Analysis failed with {} error(s):",
-                // self.paths[i],
-                errors.len()
-            )
-            .into());
-        }
-    };
+        };
 
-    // let elaborator = Elaborator::new(&sa);
+        let elaborated_vhdl = VhdlEmitter::new(&sa, &elaborator.arena)
+            .emit_design(&top_instance)
+            .expect("Something went wrong with vhdl emitting");
 
-    let mut elaborator = Elaborator::new(&sa);
+        // println!(
+        //     "Design {} elaborated and emitted in {} micros",
+        //     top_entity_name,
+        //     now.elapsed().as_micros()
+        // );
+        // print!("=== Elaborated VHDL Output ===\n{}", elaborated_vhdl);
+    }
 
-    let top_instance = match elaborator.elaborate_top(&workspace.registry, &top_entity_name) {
-        Ok(inst) => inst,
-        Err(err) => {
-            eprintln!(
-                "Elaboration Error: {}",
-                ElaboratedFormatCtx {
-                    item: &err,
-                    arena: &elaborator.arena,
-                    sa: &sa,
-                    indent: 0,
-                    path: &workspace.paths,
-                    source: &workspace.strings,
-                }
-            );
-            return Ok(());
-        }
-    };
+    // drop(_profiler);
+    return Ok(());
 
-    let elaborated_vhdl = VhdlEmitter::new(&sa, &elaborator.arena)
-        .emit_design(&top_instance)
-        .expect("Something went wrong with vhdl emitting");
+    // let top_e_sym = sa
+    //     .symbols
+    //     .interner
+    //     .get_symbol(&top_entity_name)
+    //     .ok_or_else(|| "Provided top_entity_name was not found in the files".to_string())?;
 
-    // print!("=== Elaborated VHDL Output ===\n{}", elaborated_vhdl);
+    // let top_e_decl = sa.symbols.lookup_local(ScopeId(0), top_e_sym);
 
-    let top_e_sym = sa
-        .symbols
-        .interner
-        .get_symbol(&top_entity_name)
-        .ok_or_else(|| "Provided top_entity_name was not found in the files".to_string())?;
+    // let Some(DeclRef::Entity {
+    //     file_id,
+    //     entity_id,
+    //     scope_id,
+    // }) = top_e_decl
+    // else {
+    //     return Err(
+    //         "Provided top_entity_name was found but failed to be initialized correctly".into(),
+    //     );
+    // };
+    // let top_file = file_names[file_id.0 as usize];
 
-    let top_e_decl = sa.symbols.lookup_local(ScopeId(0), top_e_sym);
+    // let mut other_files = file_names.clone();
+    // other_files.remove(file_id.0 as usize);
 
-    let Some(DeclRef::Entity {
-        file_id,
-        entity_id,
-        scope_id,
-    }) = top_e_decl
-    else {
-        return Err(
-            "Provided top_entity_name was found but failed to be initialized correctly".into(),
-        );
-    };
-    let top_file = file_names[file_id.0 as usize];
+    // let flattened = format!("velha_test_files/{}_flat.vhd", top_file);
 
-    let mut other_files = file_names.clone();
-    other_files.remove(file_id.0 as usize);
+    // let testbench = generate_all_equivalence_testbenches(
+    //     &elaborator.arena,
+    //     &sa,
+    //     &top_entity_name,
+    //     top_instance.root_instance,
+    // );
 
-    let flattened = format!("velha_test_files/{}_flat.vhd", top_file);
+    // fs::write(&flattened, &elaborated_vhdl)?;
 
-    let testbench = generate_all_equivalence_testbenches(
-        &elaborator.arena,
-        &sa,
-        &top_entity_name,
-        top_instance.root_instance,
-    );
-
-    fs::write(&flattened, &elaborated_vhdl)?;
-
-    let tb_path = format!("velha_test_files/tb_{}_equiv.vhd", top_entity_name);
-    fs::write(tb_path, &testbench)?;
-    run_all_equivalence_testbenches(&top_entity_name, top_file, other_files)?;
-    // // run_ghdl_validation(&flattened, top_entity_ast.name)?;
-    // // run_ghdl_validation("test_files/tb_equiv.vhd", "and_gate")?;
-
-    // Ok(())
-    // println!("{:?}",a.symbols);
-
-    // parser_1.parse();
-    // let format = FormatCtx {
-    //         item: &parser_1.arena,
-    //         source: &f,
-    //         arena: &parser_1.arena,
-    //         indent: 0
-    //     };
-    // println!("{format}");
+    // let tb_path = format!("velha_test_files/tb_{}_equiv.vhd", top_entity_name);
+    // fs::write(tb_path, &testbench)?;
+    // run_all_equivalence_testbenches(&top_entity_name, top_file, other_files)?;
     return Ok(());
 }
 

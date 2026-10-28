@@ -289,7 +289,7 @@ impl<'a> Elaborator<'a> {
                                 let path = format!("{path}_{i}");
                                 let mut iter_env = local_env.extend();
                                 iter_env.insert_constant(*iterator, EvaluatedValue::Integer(i));
-                                dbg!(&stmts);
+                                // dbg!(&stmts);
                                 self.lower_conc_stmt(
                                     entity_decl,
                                     arch_decl,
@@ -318,7 +318,7 @@ impl<'a> Elaborator<'a> {
                     };
 
                     if condition_met {
-                        dbg!("HERE");
+                        // dbg!("HERE");
                         self.elaborate_gen_declarations(
                             *label,
                             path,
@@ -1365,10 +1365,10 @@ impl<'a> Elaborator<'a> {
                 let a = match callee_expr {
                     Expr::Identifier { name } => {
                         let scope = self.sa.symbols.scopes.get(env.current_scope);
-                        dbg!(env.current_scope);
-                        for i in &scope.bindings {
-                            dbg!(self.get_str(*i.0));
-                        }
+                        // dbg!(env.current_scope);
+                        // for i in &scope.bindings {
+                            // dbg!(self.get_str(*i.0));
+                        // }
                         let decl_ref = self
                             .sa
                             .symbols
@@ -1788,13 +1788,13 @@ impl<'a> Elaborator<'a> {
         if type_id == self.sa.type_integer {
             return Ok((i32::MAX as i64, i32::MIN as i64));
         }
-        dbg!(self.sa.type_std_logic);
-        dbg!(&self.sa.types.get(type_id));
+        // dbg!(self.sa.type_std_logic);
+        // dbg!(&self.sa.types.get(type_id));
         match self.sa.types.get(type_id) {
             Some(TypeKind::Array { element_type, name }) => {
                 // dbg!(self.get_str(*name));
                 let ast = self.sa.get_ast(self.file_id);
-                dbg!(ast.expr(expr_id));
+                // dbg!(ast.expr(expr_id));
                 let Expr::Slice {
                     target,
                     direction,

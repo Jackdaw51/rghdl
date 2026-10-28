@@ -89,7 +89,7 @@ pub fn run_all_equivalence_testbenches(
     args.push(&normal);
     args.push(&flat);
     args.push(&tb);
-    dbg!(&args);
+    // dbg!(&args);
     let output = Command::new("ghdl").args(args).output()?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -132,9 +132,9 @@ pub fn run_all_equivalence_testbenches(
     }
 
     println!(
-        "PASS: Unit '{}' equivalence verified successfully in {} seconds",
+        "PASS: Unit '{}' equivalence verified successfully in {} microseconds",
         tb_unit,
-        now.elapsed().as_secs()
+        now.elapsed().as_micros()
     );
 
     Ok(())

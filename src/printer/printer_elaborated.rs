@@ -425,7 +425,7 @@ impl<'a> VhdlEmitter<'a> {
     }
 
     pub fn emit_design(&mut self, top: &ElaboratedDesign) -> Result<String, std::fmt::Error> {
-        dbg!(top);
+        // dbg!(top);
         let mut out = String::new();
         for i in &top.instances {
             // self.emit_instance(top.root_instance, &mut out)?;
