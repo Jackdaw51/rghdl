@@ -122,8 +122,8 @@ impl<'a> SemanticAnalyzer<'a> {
         whole_expr: ExprId,
     ) -> Result<TypeId, SemanticError> {
         let target_ty = self.infer_expr_type(target, expected_type)?;
-        dbg!();
-        self.print_expr(whole_expr);
+        // dbg!();
+        // self.print_expr(whole_expr);
 
         // Index bounds must evaluate to an integer or discrete type
         self.infer_expr_type(left, Some(self.type_integer))?;
@@ -157,7 +157,7 @@ impl<'a> SemanticAnalyzer<'a> {
         expr_id: ExprId,
     ) -> Result<TypeId, SemanticError> {
         if let Some(decl_ref) = self.symbols.lookup(self.current_scope, sym) {
-            dbg!(&decl_ref);
+            // dbg!(&decl_ref);
             let ty = self.get_decl_type(decl_ref);
 
             if ty != TypeId::ERROR {
@@ -310,26 +310,16 @@ impl<'a> SemanticAnalyzer<'a> {
         whole_expr: ExprId,
     ) -> Result<TypeId, SemanticError> {
         let operand_ty = self.infer_expr_type(expr, expected_type)?;
-        let a = self
-            .symbols
-            .interner
-            .map
-            .get(&"std_logic_vector".to_string())
-            .unwrap();
-        let type_std_logic = self.symbols.lookup(self.current_scope, *a).map(|f| {
-            let DeclRef::Type(a) = f else { panic!() };
-            a
-        });
         match op {
             UnaryOp::Not => {
-                if operand_ty == self.type_boolean || Some(operand_ty) == type_std_logic {
+                if operand_ty == self.type_boolean || Some(operand_ty) == self.type_std_logic {
                     Ok(operand_ty)
                 } else {
                     // Also allow Arrays of bits/booleans (e.g. std_logic_vector)
                     match self.types.get(operand_ty) {
                         Some(TypeKind::Array { element_type, .. })
                             if *element_type == self.type_boolean
-                                || Some(*element_type) == type_std_logic =>
+                                || Some(*element_type) == self.type_std_logic =>
                         {
                             Ok(operand_ty)
                         }

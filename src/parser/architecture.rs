@@ -724,7 +724,7 @@ impl<'a> Parser<'a> {
 
         let mut local_conc_ids = vec![];
         self.parse_conc_stmts_till_end(&mut local_conc_ids)?;
-        dbg!(&local_conc_ids);
+        // dbg!(&local_conc_ids);
 
         let stmts = self.alloc_stmt_list(local_conc_ids);
         self.end_optional_label_block(label, TokenKind::KwGenerate)?;

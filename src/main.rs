@@ -12,6 +12,10 @@ use crate::validation::validation::{
 };
 use crate::workspace::Workspace;
 
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 mod analyzer;
 pub(crate) mod ast;
 mod elaborator;
@@ -21,9 +25,13 @@ mod validation;
 mod workspace;
 const TOP_E_NAME: &str = "full_adder";
 const FOLDER_NAME: &str = "velha_test_files";
-// const FOLDER_NAME: &str = "testsuite-vests_vhdl-93_billowitch_non_compliant_analyzer_failure";
+const TEST_FOLDER_NAME: &str = "testsuite-vests_vhdl-93_billowitch_non_compliant_analyzer_failure";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+    
+    
     let args: Vec<String> = env::args().collect();
 
     let a = args.iter().enumerate().find(|p| *p.1 == "--top");
@@ -97,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         top_entity.first().unwrap().to_string()
     };
-    workspace.print_ast()?;
+    // workspace.print_ast()?;
     let mut sa = SemanticAnalyzer::new(&workspace.asts, &mut workspace.table, &workspace.registry);
     match sa.analyze(&mut workspace.registry) {
         Ok(_) => {}
@@ -125,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let elaborator = Elaborator::new(&sa);
+    // let elaborator = Elaborator::new(&sa);
 
     let mut elaborator = Elaborator::new(&sa);
 
@@ -151,7 +159,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .emit_design(&top_instance)
         .expect("Something went wrong with vhdl emitting");
 
-    print!("=== Elaborated VHDL Output ===\n{}", elaborated_vhdl);
+    // print!("=== Elaborated VHDL Output ===\n{}", elaborated_vhdl);
 
     let top_e_sym = sa
         .symbols
@@ -238,6 +246,18 @@ fn run_tests(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
         None => "*",
     };
     if a == "*" {
+        let b = fs::read_dir(TEST_FOLDER_NAME).unwrap();
+        let mut count = 0;
+        for i in b {
+            count += 1;
+        }
+        println!(
+            "failures: {}, recognized: {}, total: {}",
+            FAILURES.len(),
+            RECOGNIZED.len(),
+            count - 1
+        );
+        // return Ok(());
         // let min = FAILURES.last().max(RECOGNIZED.last()).unwrap();
         // for i in *min..3208 {
         for i in 1..3208 {

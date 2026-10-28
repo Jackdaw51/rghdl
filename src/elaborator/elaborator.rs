@@ -422,7 +422,7 @@ impl<'a> Elaborator<'a> {
     ) -> Result<(), ElaboratorError> {
         for sig_id in local_signals {
             let sig = &self.arena.signals[sig_id.0 as usize];
-            dbg!(self.get_str(sig.name));
+            // dbg!(self.get_str(sig.name));
 
             // Check if type is unresolved (integer, boolean, bit, real...), because std_logic and std_logic_vector can have multiple drivers
             let is_resolved = Some(sig.type_id) == self.sa.type_std_logic

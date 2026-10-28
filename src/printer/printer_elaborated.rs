@@ -354,7 +354,9 @@ impl<'a> Display for ElaboratedFormatCtx<'a, ElaboratorError> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.item {
             ElaboratorError::EntityNotFound(s) => write!(f, "Entity {} not found!", s),
-            ElaboratorError::ArchitectureNotFound(symbol_id) => todo!(),
+            ElaboratorError::ArchitectureNotFound(symbol_id) => {
+                write!(f, "Architecture {} not found!", self.sym(*symbol_id))
+            }
             ElaboratorError::EvaluationFailed {
                 reason,
                 span,
@@ -423,8 +425,12 @@ impl<'a> VhdlEmitter<'a> {
     }
 
     pub fn emit_design(&mut self, top: &ElaboratedDesign) -> Result<String, std::fmt::Error> {
+        dbg!(top);
         let mut out = String::new();
-        self.emit_instance(top.root_instance, &mut out)?;
+        for i in &top.instances {
+            // self.emit_instance(top.root_instance, &mut out)?;
+            self.emit_instance(*i, &mut out)?;
+        }
         Ok(out)
     }
 
@@ -439,93 +445,92 @@ impl<'a> VhdlEmitter<'a> {
             self.emit_instance(child_id, out)?;
         }
 
-        if !self.emitted_entities.insert(inst.entity_name) {
-            return Ok(());
-        }
-
-        if let Some(DeclRef::Entity {
-            file_id, entity_id, ..
-        }) = self.sa.symbols.lookup_local(ScopeId(0), inst.entity_name)
-        {
-            let ast = self.sa.get_ast(*file_id);
-            let entity = &ast.entities[entity_id.0 as usize];
-
-            for ctx in &ast.contexts[entity.contexts.start as usize..entity.contexts.end as usize] {
-                match ctx {
-                    ContextItem::Library { name, .. } => {
-                        writeln!(out, "library {};", self.sa.symbols.interner.get(*name))?;
-                    }
-                    ContextItem::Use { .. } => {
-                        write!(
-                            out,
-                            "{}",
-                            FormatCtx {
-                                item: ctx,
-                                source: "",
-                                symbols: &self.sa.symbols.interner,
-                                arena: ast,
-                                indent: 0,
-                                path: ""
-                            }
-                        )?;
-                    }
-                }
-            }
-        } else {
-            writeln!(out, "library ieee;")?;
-            writeln!(out, "use ieee.std_logic_1164.all;")?;
-        }
-
         let unique_entity_name = format!("{}_flat", self.sa.symbols.interner.get(inst.entity_name));
+        if self.emitted_entities.insert(inst.entity_name) {
+            if let Some(DeclRef::Entity {
+                file_id, entity_id, ..
+            }) = self.sa.symbols.lookup_local(ScopeId(0), inst.entity_name)
+            {
+                let ast = self.sa.get_ast(*file_id);
+                let entity = &ast.entities[entity_id.0 as usize];
 
-        writeln!(out, "entity {} is", unique_entity_name)?;
-
-        let generics = inst.local_env.generics();
-
-        if !generics.is_empty() {
-            writeln!(out, "\tgeneric (")?;
-            let len = generics.len();
-            for (i, (name, val)) in generics.iter().enumerate() {
-                let term = if i == len - 1 { "" } else { ";" };
-                writeln!(
-                    out,
-                    "\t\t{} : integer := {}{}",
-                    self.sa.symbols.interner.get(*name),
-                    val.to_vhdl_string(&self.sa.symbols.interner),
-                    term
-                )?;
-            }
-            writeln!(out, "\t);")?;
-        }
-
-        if !inst.ports.is_empty() {
-            writeln!(out, "\tport (")?;
-            for (i, port) in inst.ports.iter().enumerate() {
-                let term = if i == inst.ports.len() - 1 { "" } else { ";" };
-                let type_kind = self.sa.types.get(port.type_id).unwrap();
-                let fm = ElaboratedFormatCtx {
-                    item: type_kind,
-                    arena: self.arena,
-                    sa: self.sa,
-                    indent: 0,
-                    path: &vec![],
-                    source: &vec![],
-                };
-                write!(
-                    out,
-                    "\t\t{}: {} {}",
-                    self.sa.symbols.interner.get(port.name),
-                    port.mode,
-                    fm
-                )?;
-                if port.width() != 1 {
-                    write!(out, "({} downto {})", port.high_bound, port.low_bound)?;
+                for ctx in
+                    &ast.contexts[entity.contexts.start as usize..entity.contexts.end as usize]
+                {
+                    match ctx {
+                        ContextItem::Library { name, .. } => {
+                            writeln!(out, "library {};", self.sa.symbols.interner.get(*name))?;
+                        }
+                        ContextItem::Use { .. } => {
+                            write!(
+                                out,
+                                "{}",
+                                FormatCtx {
+                                    item: ctx,
+                                    source: "",
+                                    symbols: &self.sa.symbols.interner,
+                                    arena: ast,
+                                    indent: 0,
+                                    path: ""
+                                }
+                            )?;
+                        }
+                    }
                 }
-                writeln!(out, "{}", term)?;
+            } else {
+                writeln!(out, "library ieee;")?;
+                writeln!(out, "use ieee.std_logic_1164.all;")?;
             }
-            writeln!(out, "\t);")?;
+
+            writeln!(out, "entity {} is", unique_entity_name)?;
+
+            let generics = inst.local_env.generics();
+
+            if !generics.is_empty() {
+                writeln!(out, "\tgeneric (")?;
+                let len = generics.len();
+                for (i, (name, val)) in generics.iter().enumerate() {
+                    let term = if i == len - 1 { "" } else { ";" };
+                    writeln!(
+                        out,
+                        "\t\t{} : integer := {}{}",
+                        self.sa.symbols.interner.get(*name),
+                        val.to_vhdl_string(&self.sa.symbols.interner),
+                        term
+                    )?;
+                }
+                writeln!(out, "\t);")?;
+            }
+
+            if !inst.ports.is_empty() {
+                writeln!(out, "\tport (")?;
+                for (i, port) in inst.ports.iter().enumerate() {
+                    let term = if i == inst.ports.len() - 1 { "" } else { ";" };
+                    let type_kind = self.sa.types.get(port.type_id).unwrap();
+                    let fm = ElaboratedFormatCtx {
+                        item: type_kind,
+                        arena: self.arena,
+                        sa: self.sa,
+                        indent: 0,
+                        path: &vec![],
+                        source: &vec![],
+                    };
+                    write!(
+                        out,
+                        "\t\t{}: {} {}",
+                        self.sa.symbols.interner.get(port.name),
+                        port.mode,
+                        fm
+                    )?;
+                    if port.width() != 1 {
+                        write!(out, "({} downto {})", port.high_bound, port.low_bound)?;
+                    }
+                    writeln!(out, "{}", term)?;
+                }
+                writeln!(out, "\t);")?;
+            }
+            writeln!(out, "end {};\n", unique_entity_name)?;
         }
-        writeln!(out, "end {};\n", unique_entity_name)?;
 
         let arch_name = self.sa.symbols.interner.get(inst.architecture_name);
         writeln!(
@@ -555,24 +560,24 @@ impl<'a> VhdlEmitter<'a> {
             }
             writeln!(out, ";")?;
         }
-        for constants in inst.local_env.constants.values() {
-            let fm = ElaboratedFormatCtx {
-                item: constants,
-                arena: self.arena,
-                sa: self.sa,
-                indent: 0,
-                path: &vec![],
-                source: &vec![],
-            };
-            match constants{
-                EvaluatedValue::Integer(i) => write!(out,"{i}")?,
-                EvaluatedValue::Boolean(_) => todo!(),
-                EvaluatedValue::EnumLiteral(symbol_id) => todo!(),
-                EvaluatedValue::Vector(evaluated_values) => todo!(),
-            }
-            write!(out, "\tconstant: {}", fm)?;
-            writeln!(out, ";")?;
-        }
+        // for constants in inst.local_env.constants.values() {
+        //     let fm = ElaboratedFormatCtx {
+        //         item: constants,
+        //         arena: self.arena,
+        //         sa: self.sa,
+        //         indent: 0,
+        //         path: &vec![],
+        //         source: &vec![],
+        //     };
+        //     match constants{
+        //         EvaluatedValue::Integer(i) => write!(out,"{i}")?,
+        //         EvaluatedValue::Boolean(_) => todo!(),
+        //         EvaluatedValue::EnumLiteral(symbol_id) => todo!(),
+        //         EvaluatedValue::Vector(evaluated_values) => todo!(),
+        //     }
+        //     write!(out, "\tconstant: {}", fm)?;
+        //     writeln!(out, ";")?;
+        // }
 
         writeln!(out, "begin")?;
 

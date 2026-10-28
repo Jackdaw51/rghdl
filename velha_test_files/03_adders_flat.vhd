@@ -21,6 +21,11 @@ begin
 	y <= t1 Or t2;
 end gate_level;
 
+architecture rtl of xor2_flat is
+begin
+	y <= a Xor b;
+end rtl;
+
 library ieee;
 use ieee.std_logic_1164.all;
 entity and2_flat is
@@ -30,6 +35,11 @@ entity and2_flat is
 		y: out std_logic
 	);
 end and2_flat;
+
+architecture rtl of and2_flat is
+begin
+	y <= a And b;
+end rtl;
 
 architecture rtl of and2_flat is
 begin
@@ -68,35 +78,308 @@ architecture struct of full_adder_flat is
 	signal c1: std_logic;
 	signal c2: std_logic;
 begin
-	full_adder_struct_u_x1 : entity work.xor2_flat
+	ripple_adder_struct_0_u_fa_u_x1 : entity work.xor2_flat
 		port map (
 			a => a,
 			b => b,
 			y => s1
 		);
-	full_adder_struct_u_x2 : entity work.xor2_flat
+	ripple_adder_struct_0_u_fa_u_x2 : entity work.xor2_flat
 		port map (
 			a => s1,
 			b => cin,
 			y => sum
 		);
-	full_adder_struct_u_a1 : entity work.and2_flat
+	ripple_adder_struct_0_u_fa_u_a1 : entity work.and2_flat
 		port map (
 			y => c1,
 			a => a,
 			b => b
 		);
-	full_adder_struct_u_a2 : entity work.and2_flat
+	ripple_adder_struct_0_u_fa_u_a2 : entity work.and2_flat
 		port map (
 			a => s1,
 			b => cin,
 			y => c2
 		);
-	full_adder_struct_u_o1 : entity work.or2_flat
+	ripple_adder_struct_0_u_fa_u_o1 : entity work.or2_flat
 		port map (
 			a => c1,
 			b => c2,
 			y => cout
+		);
+end struct;
+
+architecture gate_level of xor2_flat is
+	signal n_a: std_logic;
+	signal n_b: std_logic;
+	signal t1: std_logic;
+	signal t2: std_logic;
+begin
+	n_a <= not  a;
+	n_b <= not  b;
+	t1 <= a And n_b;
+	t2 <= n_a And b;
+	y <= t1 Or t2;
+end gate_level;
+
+architecture rtl of xor2_flat is
+begin
+	y <= a Xor b;
+end rtl;
+
+architecture rtl of and2_flat is
+begin
+	y <= a And b;
+end rtl;
+
+architecture rtl of and2_flat is
+begin
+	y <= a And b;
+end rtl;
+
+architecture rtl of or2_flat is
+begin
+	y <= a Or b;
+end rtl;
+
+architecture struct of full_adder_flat is
+	signal s1: std_logic;
+	signal c1: std_logic;
+	signal c2: std_logic;
+begin
+	ripple_adder_struct_1_u_fa_u_x1 : entity work.xor2_flat
+		port map (
+			a => a,
+			b => b,
+			y => s1
+		);
+	ripple_adder_struct_1_u_fa_u_x2 : entity work.xor2_flat
+		port map (
+			a => s1,
+			b => cin,
+			y => sum
+		);
+	ripple_adder_struct_1_u_fa_u_a1 : entity work.and2_flat
+		port map (
+			y => c1,
+			a => a,
+			b => b
+		);
+	ripple_adder_struct_1_u_fa_u_a2 : entity work.and2_flat
+		port map (
+			a => s1,
+			b => cin,
+			y => c2
+		);
+	ripple_adder_struct_1_u_fa_u_o1 : entity work.or2_flat
+		port map (
+			a => c1,
+			b => c2,
+			y => cout
+		);
+end struct;
+
+architecture gate_level of xor2_flat is
+	signal n_a: std_logic;
+	signal n_b: std_logic;
+	signal t1: std_logic;
+	signal t2: std_logic;
+begin
+	n_a <= not  a;
+	n_b <= not  b;
+	t1 <= a And n_b;
+	t2 <= n_a And b;
+	y <= t1 Or t2;
+end gate_level;
+
+architecture rtl of xor2_flat is
+begin
+	y <= a Xor b;
+end rtl;
+
+architecture rtl of and2_flat is
+begin
+	y <= a And b;
+end rtl;
+
+architecture rtl of and2_flat is
+begin
+	y <= a And b;
+end rtl;
+
+architecture rtl of or2_flat is
+begin
+	y <= a Or b;
+end rtl;
+
+architecture struct of full_adder_flat is
+	signal s1: std_logic;
+	signal c1: std_logic;
+	signal c2: std_logic;
+begin
+	ripple_adder_struct_2_u_fa_u_x1 : entity work.xor2_flat
+		port map (
+			a => a,
+			b => b,
+			y => s1
+		);
+	ripple_adder_struct_2_u_fa_u_x2 : entity work.xor2_flat
+		port map (
+			a => s1,
+			b => cin,
+			y => sum
+		);
+	ripple_adder_struct_2_u_fa_u_a1 : entity work.and2_flat
+		port map (
+			y => c1,
+			a => a,
+			b => b
+		);
+	ripple_adder_struct_2_u_fa_u_a2 : entity work.and2_flat
+		port map (
+			a => s1,
+			b => cin,
+			y => c2
+		);
+	ripple_adder_struct_2_u_fa_u_o1 : entity work.or2_flat
+		port map (
+			a => c1,
+			b => c2,
+			y => cout
+		);
+end struct;
+
+architecture gate_level of xor2_flat is
+	signal n_a: std_logic;
+	signal n_b: std_logic;
+	signal t1: std_logic;
+	signal t2: std_logic;
+begin
+	n_a <= not  a;
+	n_b <= not  b;
+	t1 <= a And n_b;
+	t2 <= n_a And b;
+	y <= t1 Or t2;
+end gate_level;
+
+architecture rtl of xor2_flat is
+begin
+	y <= a Xor b;
+end rtl;
+
+architecture rtl of and2_flat is
+begin
+	y <= a And b;
+end rtl;
+
+architecture rtl of and2_flat is
+begin
+	y <= a And b;
+end rtl;
+
+architecture rtl of or2_flat is
+begin
+	y <= a Or b;
+end rtl;
+
+architecture struct of full_adder_flat is
+	signal s1: std_logic;
+	signal c1: std_logic;
+	signal c2: std_logic;
+begin
+	ripple_adder_struct_3_u_fa_u_x1 : entity work.xor2_flat
+		port map (
+			a => a,
+			b => b,
+			y => s1
+		);
+	ripple_adder_struct_3_u_fa_u_x2 : entity work.xor2_flat
+		port map (
+			a => s1,
+			b => cin,
+			y => sum
+		);
+	ripple_adder_struct_3_u_fa_u_a1 : entity work.and2_flat
+		port map (
+			y => c1,
+			a => a,
+			b => b
+		);
+	ripple_adder_struct_3_u_fa_u_a2 : entity work.and2_flat
+		port map (
+			a => s1,
+			b => cin,
+			y => c2
+		);
+	ripple_adder_struct_3_u_fa_u_o1 : entity work.or2_flat
+		port map (
+			a => c1,
+			b => c2,
+			y => cout
+		);
+end struct;
+
+library ieee;
+use ieee.std_logic_1164.all;
+entity ripple_adder_flat is
+	generic (
+		tpd : integer := 0;
+		width : integer := 4
+	);
+	port (
+		a: in std_logic_vector(3 downto 0);
+		b: in std_logic_vector(3 downto 0);
+		cin: in std_logic;
+		sum: out std_logic_vector(3 downto 0);
+		cout: out std_logic;
+		unused: out std_logic
+	);
+end ripple_adder_flat;
+
+architecture struct of ripple_adder_flat is
+	signal carry: std_logic_vector(4 downto 0);
+	signal ripple_adder_struct_1_local_c: std_logic;
+	signal ripple_adder_struct_2_local_c: std_logic;
+	signal ripple_adder_struct_3_local_c: std_logic;
+begin
+	carry(0) <= cin;
+	cout <= carry(4);
+	unused <= '0';
+	carry(2) <= ripple_adder_struct_1_local_c;
+	carry(3) <= ripple_adder_struct_2_local_c;
+	carry(4) <= ripple_adder_struct_3_local_c;
+	ripple_adder_struct_0_u_fa : entity work.full_adder_flat
+		port map (
+			a => a(0),
+			b => b(0),
+			cin => carry(0),
+			sum => sum(0),
+			cout => carry(1)
+		);
+	ripple_adder_struct_1_u_fa : entity work.full_adder_flat
+		port map (
+			a => a(1),
+			b => b(1),
+			cin => carry(1),
+			sum => sum(1),
+			cout => ripple_adder_struct_1_local_c
+		);
+	ripple_adder_struct_2_u_fa : entity work.full_adder_flat
+		port map (
+			a => a(2),
+			b => b(2),
+			cin => carry(2),
+			sum => sum(2),
+			cout => ripple_adder_struct_2_local_c
+		);
+	ripple_adder_struct_3_u_fa : entity work.full_adder_flat
+		port map (
+			a => a(3),
+			b => b(3),
+			cin => carry(3),
+			sum => sum(3),
+			cout => ripple_adder_struct_3_local_c
 		);
 end struct;
 

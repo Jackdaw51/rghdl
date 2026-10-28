@@ -251,7 +251,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
         // dbg!(&self.ast.decls[entity.generics_start.0 as usize..entity.generics_end.0 as usize]);
         self.analyze_declarations(entity.generics_start, entity.generics_end, entity_scope);
-        dbg!(entity_scope);
+        // dbg!(entity_scope);
 
         // Populate Ports into Entity Scope
         let port_slice =
@@ -345,7 +345,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
 
         let prev_scope = self.current_scope;
         self.current_scope = arch_scope;
-        dbg!(arch_scope, entity_scope);
+        // dbg!(arch_scope, entity_scope);
         // Populate Declarations (Signals, Variables, Constants)
         // TODO enforce assignment rules over declarations
         self.analyze_declarations(arch.decls_start, arch.decls_end, arch_scope);
@@ -743,10 +743,10 @@ impl<'a> super::SemanticAnalyzer<'a> {
                         }
                     };
 
-                    dbg!(
-                        self.print_expr(assoc_expr.actual),
-                        self.print_expr(formal_port.port_type)
-                    );
+                    // dbg!(
+                    //     self.print_expr(assoc_expr.actual),
+                    //     self.print_expr(formal_port.port_type)
+                    // );
                     let formal_type = match self.infer_expr_type(formal_port.port_type, None) {
                         Ok(t) => t,
                         Err(err) => {
@@ -1112,7 +1112,7 @@ impl<'a> super::SemanticAnalyzer<'a> {
         {
             let ast = self.get_ast(file_id);
             let expr = ast.expr(expr_id);
-            dbg!(expr);
+            // dbg!(expr);
             match expr {
                 Expr::CallOrIndex { callee, args } => {
                     self.get_base_stripped_from_file(*callee, file_id)

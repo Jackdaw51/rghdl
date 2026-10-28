@@ -24,7 +24,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse(&mut self) -> ParseResult<()> {
         loop {
             let next = self.lexer.peek();
-            dbg!(next.kind);
+            // dbg!(next.kind);
             match next.kind {
                 TokenKind::KwEntity => {
                     let res = self.parse_entity();

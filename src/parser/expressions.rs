@@ -7,7 +7,7 @@ use crate::parser::{
 impl<'a> Parser<'a> {
     /// Entry point for parsing an expression.
     pub fn parse_expression(&mut self) -> Result<ExprId, ParseError> {
-        dbg!(self.lexer.peek());
+        // dbg!(self.lexer.peek());
         self.parse_expr_bp(0) // Start with lowest binding power (0)
     }
 
