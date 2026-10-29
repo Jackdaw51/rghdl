@@ -4,8 +4,8 @@
 $env:RUSTFLAGS="-A warnings"
 
 Write-Host "Building rghdl (Release mode)..." -ForegroundColor Yellow
-# cargo build --release -q
-cargo build --release --features dhat-heap -q
+cargo build --release -q
+# cargo build --release --features dhat-heap -q
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Build failed! Exiting." -ForegroundColor Red
     exit 1

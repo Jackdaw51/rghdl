@@ -1,0 +1,9 @@
+Entity,InternalMicros_Mean,InternalMicros_StdDev
+and2,319.7,21.1
+full_adder,562.5,155.0
+inv,316.4,24.2
+nand2,324.0,51.0
+or2,366.1,89.5
+ripple_adder,581.4,63.5
+ripple_adder_top,610.7,42.3
+xor2,432.7,208.2

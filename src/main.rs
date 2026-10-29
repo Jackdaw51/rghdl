@@ -161,6 +161,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .emit_design(&top_instance)
         .expect("Something went wrong with vhdl emitting");
 
+    eprintln!(
+        "[RGH_TIMING] {},{}",
+        top_entity_name,
+        now.elapsed().as_micros()
+    );
+    return Ok(());
     // println!(
     //     "Design {} elaborated and emitted in {} micros",
     //     top_entity_name,
@@ -210,7 +216,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_all_equivalence_testbenches(&top_entity_name, top_file, other_files)?;
     eprintln!(
         "[RGH_TIMING] {},{}",
-        top_entity_name, now.elapsed().as_micros()
+        top_entity_name,
+        now.elapsed().as_micros()
     );
     return Ok(());
 }
