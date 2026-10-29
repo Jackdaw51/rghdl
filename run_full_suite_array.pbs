@@ -12,6 +12,21 @@ cd $PBS_O_WORKDIR
 # Ensure output directories exist
 mkdir -p logs results
 
+# --- LOG HARDWARE INFO ONCE (ON TASK 1) ---
+if [ "$PBS_ARRAY_INDEX" -eq 1 ]; then
+    {
+        echo "=== BENCHMARK EXECUTION NODE HARDWARE ==="
+        echo "Timestamp:    $(date)"
+        echo "Hostname:     $(hostname)"
+        echo "Kernel:       $(uname -sr)"
+        echo "CPU Model:    $(lscpu 2>/dev/null | grep "Model name:" | sed 's/Model name:[ \t]*//')"
+        echo "Architecture: $(uname -m)"
+        echo "Cores/Node:   $(nproc)"
+        echo "Total RAM:    $(free -h 2>/dev/null | awk '/^Mem:/ {print $2}')"
+        echo "========================================="
+    } > logs/hardware_info.txt
+fi
+
 # Define all 8 test targets (1,000 iterations each)
 TESTS=(
     "01_nand2|nand2"
