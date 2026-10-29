@@ -117,7 +117,7 @@ pub fn run_all_equivalence_testbenches(
     }
 
     println!("Validating equivalence...");
-    let now = Instant::now();
+    // let now = Instant::now();
     let sim_status = Command::new("ghdl")
         .args([
             "-r",
@@ -131,11 +131,11 @@ pub fn run_all_equivalence_testbenches(
         return Err(format!("Equivalence check failed for unit '{}'", tb_unit).into());
     }
 
-    println!(
-        "PASS: Unit '{}' equivalence verified successfully in {} microseconds",
-        tb_unit,
-        now.elapsed().as_micros()
-    );
+    // println!(
+    //     "PASS: Unit '{}' equivalence verified successfully in {} microseconds",
+    //     tb_unit,
+    //     now.elapsed().as_micros()
+    // );
 
     Ok(())
 }

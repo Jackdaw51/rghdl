@@ -1,0 +1,55 @@
+#!/bin/bash
+#PBS -N rghdl_full_suite
+##PBS -J 1-8000
+#PBS -J 1,1001,2001,3001,4001,5001,6001,7001
+#PBS -l select=1:ncpus=1:mem=2gb
+#PBS -l walltime=00:10:00
+#PBS -o logs/job_${PBS_ARRAY_INDEX}.out
+#PBS -e logs/job_${PBS_ARRAY_INDEX}.err
+
+cd $PBS_O_WORKDIR
+
+# Ensure output directories exist
+mkdir -p logs results
+
+# Define all 8 test targets (1,000 iterations each)
+TESTS=(
+    "01_nand2|nand2"
+    "02_primitives|inv"
+    "02_primitives|and2"
+    "02_primitives|or2"
+    "02_primitives|xor2"
+    "02_primitives 03_adders|full_adder"
+    "02_primitives 03_adders|ripple_adder"
+    "02_primitives 03_adders|ripple_adder_top"
+)
+
+# Map PBS_ARRAY_INDEX (1..8000) to Test ID and Iteration ID
+ZERO_INDEX=$(( PBS_ARRAY_INDEX - 1 ))
+TEST_ID=$(( ZERO_INDEX / 1000 ))
+ITERATION_ID=$(( (ZERO_INDEX % 1000) + 1 ))
+
+# Extract configuration for this specific task
+IFS="|" read -r FILES TOP_ENTITY <<< "${TESTS[$TEST_ID]}"
+
+EXE_PATH="./target/release/rghdl"
+RESULT_FILE="results/res_${TOP_ENTITY}_${ITERATION_ID}.csv"
+LOG_ERR="logs/err_${PBS_ARRAY_INDEX}.log"
+
+# --- EXECUTE RGHDL ONCE ---
+$EXE_PATH $FILES --top "$TOP_ENTITY" > /dev/null 2> "$LOG_ERR"
+EXIT_CODE=$?
+
+# Extract the 2nd column (elapsed microseconds) from [RGH_TIMING] top_entity_name,micros
+TOTAL_TIME_US=$(grep "\[RGH_TIMING\]" "$LOG_ERR" | awk -F',' '{print $2}')
+
+# Fallback to 0 if an execution panic occurred before timing was printed
+if [ -z "$TOTAL_TIME_US" ]; then
+    TOTAL_TIME_US=0
+fi
+
+# Clean up log file
+rm -f "$LOG_ERR"
+
+# Save structured result: Entity, Iteration, TotalTimeUs, ExitCode
+echo "${TOP_ENTITY},${ITERATION_ID},${TOTAL_TIME_US},${EXIT_CODE}" > "$RESULT_FILE"
